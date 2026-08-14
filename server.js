@@ -6,6 +6,7 @@ const path = require('path');
 
 const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
+const crmConfigFile = path.join(__dirname, 'crm-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const sheetId = '1CM0In02I0TeN7lxY20G3hEHpU9uJAmGo187opGDzDB4';
@@ -21,6 +22,24 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 }
 
 function users() { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); }
+function crmConfig() {
+  if (!fs.existsSync(crmConfigFile)) throw new Error('CRM chưa được cấu hình.');
+  const config = JSON.parse(fs.readFileSync(crmConfigFile, 'utf8'));
+  if (!config.url || !config.key) throw new Error('CRM chưa được cấu hình.');
+  return config;
+}
+async function crmRequest(method, action, record) {
+  const config = crmConfig();
+  const url = new URL(config.url);
+  if (method === 'GET') url.searchParams.set('key', config.key);
+  const response = await fetch(url, method === 'GET' ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: config.key, action, record })
+  });
+  const data = await response.json();
+  if (!response.ok || data.error) throw new Error(data.error || 'Không thể kết nối CRM.');
+  return data;
+}
+function sameSale(left, right) { return String(left || '').trim().toLocaleLowerCase('vi-VN') === String(right || '').trim().toLocaleLowerCase('vi-VN'); }
 function saveUsers(list) {
   const temporary = `${usersFile}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 });
@@ -101,6 +120,29 @@ http.createServer(async (req, res) => {
       res.setHeader('Set-Cookie', `ktt_session=${makeSession(account)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
       return send(res, 200, { ok: true });
     } catch { return send(res, 400, { error: 'Không thể đổi mật khẩu.' }); }
+  }
+  if (pathname === '/api/leads' && req.method === 'GET') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    try {
+      const data = await crmRequest('GET');
+      const rows = user.role === 'sale' ? data.rows.filter(row => sameSale(row.sale, user.sale)) : data.rows;
+      return send(res, 200, { rows });
+    } catch (error) { return send(res, 502, { error: error.message || 'Không thể tải CRM.' }); }
+  }
+  if (pathname === '/api/leads' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    if (user.role !== 'sale') return send(res, 403, { error: 'Chỉ tài khoản Sale có thể cập nhật CRM.' });
+    try {
+      const { action, record } = await readJson(req);
+      if (!['create', 'update'].includes(action) || !record) return send(res, 400, { error: 'Dữ liệu CRM không hợp lệ.' });
+      if (action === 'update') {
+        const data = await crmRequest('GET');
+        const existing = data.rows.find(row => row.id === record.id);
+        if (!existing || !sameSale(existing.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể sửa khách hàng của mình.' });
+      }
+      const saved = await crmRequest('POST', action, { ...record, sale: user.sale });
+      return send(res, 200, saved);
+    } catch (error) { return send(res, 502, { error: error.message || 'Không thể lưu CRM.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { return send(res, 200, { user: profile(user), data: await dashboardData(user) }); } catch { return send(res, 502, { error: 'Không thể tải dữ liệu Google Sheets.' }); } }

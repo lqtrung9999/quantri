@@ -2,4 +2,5 @@ node_modules/
 .env
 users.json
 .session-secret
+crm-config.json
 logs/
