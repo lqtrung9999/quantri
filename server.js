@@ -21,6 +21,11 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 }
 
 function users() { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); }
+function saveUsers(list) {
+  const temporary = `${usersFile}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, usersFile);
+}
 function hash(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
 function verifyPassword(password, stored) {
   const [, salt, expected] = stored.split('$');
@@ -81,6 +86,22 @@ http.createServer(async (req, res) => {
     return fs.readFile(path.join(publicDir, 'logo-kim-thanh-tin-transparent.png'), (error, content) => error ? send(res, 404, 'Không tìm thấy logo.', 'text/plain; charset=utf-8') : send(res, 200, content, 'image/png'));
   }
   const user = currentUser(req);
+  if (pathname === '/api/change-password' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    try {
+      const { currentPassword, newPassword } = await readJson(req);
+      if (!verifyPassword(String(currentPassword || ''), user.passwordHash)) return send(res, 400, { error: 'Mật khẩu hiện tại chưa đúng.' });
+      if (typeof newPassword !== 'string' || newPassword.length < 8) return send(res, 400, { error: 'Mật khẩu mới cần có ít nhất 8 ký tự.' });
+      const list = users();
+      const account = list.find(item => item.id === user.id);
+      if (!account) return send(res, 404, { error: 'Không tìm thấy tài khoản.' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      account.passwordHash = `scrypt$${salt}$${hash(newPassword, salt)}`;
+      saveUsers(list);
+      res.setHeader('Set-Cookie', `ktt_session=${makeSession(account)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+      return send(res, 200, { ok: true });
+    } catch { return send(res, 400, { error: 'Không thể đổi mật khẩu.' }); }
+  }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { return send(res, 200, { user: profile(user), data: await dashboardData(user) }); } catch { return send(res, 502, { error: 'Không thể tải dữ liệu Google Sheets.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
