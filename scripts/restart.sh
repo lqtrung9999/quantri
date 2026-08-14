@@ -19,9 +19,16 @@ fi
 
 mkdir -p "${LOG_DIR}"
 if [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
-  kill "$(cat "${PID_FILE}")"
-  sleep 1
+  kill "$(cat "${PID_FILE}")" || true
 fi
+
+# A previous deployment may leave an outdated PID file. Stop only the
+# application process currently bound to this dashboard's dedicated port.
+PORT_PIDS="$(fuser -n tcp 3000 2>/dev/null || true)"
+if [[ -n "${PORT_PIDS}" ]]; then
+  kill ${PORT_PIDS} || true
+fi
+sleep 1
 
 cd "${APP_DIR}"
 nohup env PORT=3000 SESSION_SECRET="$(cat "${SESSION_SECRET_FILE}")" "${NODE_BIN}" server.js \
