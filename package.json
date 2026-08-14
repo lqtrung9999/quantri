@@ -1,0 +1,10 @@
+{
+  "name": "kim-thanh-tin-internal-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Báo cáo quản trị nội bộ Kim Thành Tín",
+  "scripts": {
+    "start": "node server.js",
+    "add-user": "node create-user.js"
+  }
+}
