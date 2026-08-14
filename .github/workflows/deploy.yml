@@ -1,0 +1,40 @@
+name: Deploy dashboard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Get source
+        uses: actions/checkout@v4
+
+      - name: Configure deployment key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload and restart
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude 'users.json' \
+            --exclude '.session-secret' \
+            --exclude 'logs/' \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:/home/$DEPLOY_USER/apps/quantri/"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" 'bash /home/'"$DEPLOY_USER"'/apps/quantri/scripts/restart.sh'

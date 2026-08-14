@@ -31,3 +31,7 @@ npm run add-user -- --username minh.nguyen --name "Nguyễn Minh" --role sale --
 ```
 
 Khi triển khai thật, thiết lập biến môi trường `SESSION_SECRET` thành một chuỗi ngẫu nhiên dài và không để Google Sheet ở chế độ công khai.
+
+## Triển khai tự động
+
+Mỗi lần đẩy lên nhánh `main`, GitHub Actions cập nhật mã nguồn trên máy chủ và khởi động lại dịch vụ. Các tệp `users.json`, `.session-secret` và thư mục nhật ký được giữ lại trên máy chủ, không nằm trong GitHub.
