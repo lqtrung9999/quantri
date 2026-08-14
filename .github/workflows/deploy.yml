@@ -35,6 +35,7 @@ jobs:
             --exclude '.git/' \
             --exclude 'users.json' \
             --exclude '.session-secret' \
+            --exclude 'crm-config.json' \
             --exclude 'logs/' \
             ./ "$DEPLOY_USER@$DEPLOY_HOST:/home/$DEPLOY_USER/apps/quantri/"
           ssh "$DEPLOY_USER@$DEPLOY_HOST" 'bash /home/'"$DEPLOY_USER"'/apps/quantri/scripts/restart.sh'
