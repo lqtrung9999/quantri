@@ -16,6 +16,7 @@ if (users.some(user => user.username.toLowerCase() === args.username.toLowerCase
 }
 const salt = crypto.randomBytes(16).toString('hex');
 const passwordHash = `scrypt$${salt}$${crypto.scryptSync(args.password, salt, 64).toString('hex')}`;
-users.push({ id: `${args.role}-${crypto.randomUUID()}`, name: args.name, username: args.username, role: args.role, ...(args.role === 'sale' ? { sale: args.sale } : {}), passwordHash });
+const saleAliases = String(args['sale-aliases'] || '').split('|').map(value => value.trim()).filter(Boolean);
+users.push({ id: `${args.role}-${crypto.randomUUID()}`, name: args.name, username: args.username, role: args.role, ...(args.role === 'sale' ? { sale: args.sale, ...(saleAliases.length ? { saleAliases } : {}) } : {}), passwordHash });
 fs.writeFileSync(file, `${JSON.stringify(users, null, 2)}\n`);
 console.log(`Đã tạo tài khoản ${args.username} (${args.role}).`);

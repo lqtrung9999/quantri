@@ -30,6 +30,12 @@ npm run add-user -- --username ketoan --name "Kế toán" --role accountant --pa
 npm run add-user -- --username minh.nguyen --name "Nguyễn Minh" --role sale --sale "P5 HÀ PHƯƠNG" --password "MatKhauManh!2026"
 ```
 
+Nếu dữ liệu cũ có các biến thể tên Sale, thêm các tên khớp chính xác, ngăn cách bằng `|`:
+
+```bash
+npm run add-user -- --username p5-ha-phuong --name "P5 HÀ PHƯƠNG" --role sale --sale "P5 HÀ PHƯƠNG" --sale-aliases "P5 HÀ PHƯ��NG|P5 HÀ PH��ƠNG" --password "MậtKhẩuMạnh"
+```
+
 Khi triển khai thật, thiết lập biến môi trường `SESSION_SECRET` thành một chuỗi ngẫu nhiên dài và không để Google Sheet ở chế độ công khai.
 
 ## Triển khai tự động

@@ -56,7 +56,10 @@ function googleRows(sheet) {
 async function dashboardData(user) {
   const [debtThuy, warehouseThuy, debtYen, warehouseYen] = await Promise.all([googleRows(sheets.thuy.debt), googleRows(sheets.thuy.warehouse), googleRows(sheets.yen.debt), googleRows(sheets.yen.warehouse)]);
   if (user.role === 'sale') {
-    const filterSale = rows => rows.filter(row => String(row[8] || '').trim().toLocaleLowerCase('vi-VN') === user.sale.toLocaleLowerCase('vi-VN'));
+    const allowedSales = [user.sale, ...(user.saleAliases || [])]
+      .map(value => String(value || '').trim().toLocaleLowerCase('vi-VN'))
+      .filter(Boolean);
+    const filterSale = rows => rows.filter(row => allowedSales.includes(String(row[8] || '').trim().toLocaleLowerCase('vi-VN')));
     return { thuy: { debt: [], warehouse: filterSale(warehouseThuy) }, yen: { debt: [], warehouse: filterSale(warehouseYen) } };
   }
   return { thuy: { debt: debtThuy, warehouse: warehouseThuy }, yen: { debt: debtYen, warehouse: warehouseYen } };
