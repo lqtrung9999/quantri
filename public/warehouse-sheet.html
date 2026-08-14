@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trang tính hàng vào kho | Kim Thành Tín</title>
+  <style>
+    :root{--ink:#261f12;--line:#ded6c6;--purple:#514f88;--gold:#c68712;--select:#e6ddff}*{box-sizing:border-box}body{margin:0;background:#f6f3ed;color:var(--ink);font:14px Inter,system-ui,sans-serif}header{height:66px;display:flex;align-items:center;gap:14px;padding:10px 18px;background:#fffdf8;border-bottom:1px solid var(--line)}h1{font-size:18px;margin:0}.back{color:#57420f;text-decoration:none;font-weight:700}.search{margin-left:auto;width:min(390px,38vw);padding:9px 11px;border:1px solid #cdb98b;border-radius:7px;font:inherit}.hint{font-size:12px;color:#746743}.sheet{height:calc(100vh - 106px);overflow:auto;background:#fff;user-select:none}.sheet-table{border-collapse:collapse;min-width:3200px;font-size:13px}.sheet-table th{position:sticky;top:0;z-index:2;background:var(--purple);color:#fff;text-align:center;white-space:pre-line;font-size:11px}.sheet-table th,.sheet-table td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:11px 15px;white-space:nowrap;text-align:center}.sheet-table td:nth-child(6){text-align:left}.sheet-table td.selected{background:var(--select);outline:1px solid #7867b1;outline-offset:-1px}.sheet-table tr:hover td{background:#fff9e9}.sheet-table tr:hover td.selected{background:var(--select)}.empty{padding:50px!important;text-align:center!important}.status{height:40px;display:flex;align-items:center;gap:18px;padding:0 18px;background:#fffdf8;border-top:1px solid var(--line);font-size:13px}.status strong{color:#584414}@media(max-width:760px){header{height:auto;flex-wrap:wrap}.search{order:3;margin:0;width:100%}.sheet{height:calc(100vh - 142px)}.hint{display:none}}
+  </style>
+</head>
+<body>
+  <header><a class="back" href="/">← Dashboard</a><h1>Trang tính — Hàng vào kho</h1><span class="hint">Kéo chuột qua các ô số để xem tổng ở thanh dưới.</span><input class="search" id="search" placeholder="Tìm mã hàng, chủ hàng hoặc biển số xe"></header>
+  <main class="sheet"><table class="sheet-table"><thead><tr id="headers"></tr></thead><tbody id="rows"><tr><td>Đang tải dữ liệu…</td></tr></tbody></table></main>
+  <footer class="status" id="status">Chọn các ô để tính tổng.</footer>
+  <script src="/warehouse-sheet.js"></script>
+</body></html>
