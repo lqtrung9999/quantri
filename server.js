@@ -83,7 +83,16 @@ function googleRows(sheet) {
   return new Promise((resolve, reject) => {
     const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${encodeURIComponent(sheet)}&tqx=out:json`;
     https.get(url, response => { let data = ''; response.on('data', chunk => data += chunk); response.on('end', () => {
-      try { const result = JSON.parse(data.match(/setResponse\((.*)\);?$/s)[1]); resolve((result.table.rows || []).map(row => (row.c || []).map(cell => cell ? (cell.f ?? cell.v) : null))); } catch { reject(new Error(`Không đọc được sheet ${sheet}`)); }
+      try {
+        const result = JSON.parse(data.match(/setResponse\((.*)\);?$/s)[1]);
+        const value = cell => {
+          if (!cell) return null;
+          const date = String(cell.v || '').match(/^Date\((\d+),(\d+),(\d+)\)$/);
+          if (date) return `${String(date[3]).padStart(2, '0')}/${String(Number(date[2]) + 1).padStart(2, '0')}/${date[1]}`;
+          return cell.f ?? cell.v;
+        };
+        resolve((result.table.rows || []).map(row => (row.c || []).map(value)));
+      } catch { reject(new Error(`Không đọc được sheet ${sheet}`)); }
     }); }).on('error', reject);
   });
 }
