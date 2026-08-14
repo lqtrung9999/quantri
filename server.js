@@ -39,6 +39,16 @@ async function crmRequest(method, action, record) {
   if (!response.ok || data.error) throw new Error(data.error || 'Không thể kết nối CRM.');
   return data;
 }
+async function crmBatchUpdate(records) {
+  const config = crmConfig();
+  const response = await fetch(config.url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: config.key, action: 'batchUpdate', records })
+  });
+  const data = await response.json();
+  if (!response.ok || data.error) throw new Error(data.error || 'Không thể lưu CRM.');
+  return data;
+}
 function sameSale(left, right) { return String(left || '').trim().toLocaleLowerCase('vi-VN') === String(right || '').trim().toLocaleLowerCase('vi-VN'); }
 function saveUsers(list) {
   const temporary = `${usersFile}.tmp`;
@@ -133,7 +143,16 @@ http.createServer(async (req, res) => {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     if (user.role !== 'sale') return send(res, 403, { error: 'Chỉ tài khoản Sale có thể cập nhật CRM.' });
     try {
-      const { action, record } = await readJson(req);
+      const { action, record, records } = await readJson(req);
+      if (action === 'batchUpdate') {
+        if (!Array.isArray(records) || !records.length || records.length > 200) return send(res, 400, { error: 'Danh sách cập nhật không hợp lệ.' });
+        const data = await crmRequest('GET');
+        const existing = new Map(data.rows.map(row => [row.id, row]));
+        for (const item of records) {
+          if (!item?.id || !existing.has(item.id) || !sameSale(existing.get(item.id).sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể sửa khách hàng của mình.' });
+        }
+        return send(res, 200, await crmBatchUpdate(records.map(item => ({ ...item, sale: user.sale }))));
+      }
       if (!['create', 'update'].includes(action) || !record) return send(res, 400, { error: 'Dữ liệu CRM không hợp lệ.' });
       if (action === 'update') {
         const data = await crmRequest('GET');
