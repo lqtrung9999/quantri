@@ -135,6 +135,13 @@ async function larkSheets(spreadsheetToken, token) {
   if (!response.ok || body.code) throw new Error(body.msg || 'Không thể đọc danh sách sheet Lark.');
   return body.data?.sheets || [];
 }
+async function resolveLarkSource(source, token) {
+  if (source.sheetId && !source.sheetTitle) return source;
+  const sheetsInFile = await larkSheets(source.spreadsheetToken, token);
+  const matched = sheetsInFile.find(sheet => normalized(sheet.title || sheet.name) === normalized(source.sheetTitle));
+  if (!matched) throw new Error(`Không tìm thấy tab Lark ${source.sheetTitle}.`);
+  return { ...source, sheetId: matched.sheet_id || matched.sheetId, label: source.label || matched.title || matched.name };
+}
 function normalized(value) {
   return String(value ?? '').trim().toLocaleUpperCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D').replace(/[^A-Z0-9]/g, '');
 }
@@ -171,16 +178,21 @@ function dateFromVehicle(value) {
 async function trackingTables() {
   if (trackingCache.value && trackingCache.expiresAt > Date.now()) return trackingCache.value;
   const config = larkConfig();
-  if (!config?.sources?.vehicle || !config?.sources?.delivery) throw new Error('Nguồn tra cứu Lark chưa được cấu hình đầy đủ.');
+  if (!config?.sources?.vehicle || !config?.sources?.vehicleTn || !config?.sources?.thuyTn || !config?.sources?.yenTn || !config?.sources?.delivery) throw new Error('Nguồn tra cứu Lark chưa được cấu hình đầy đủ.');
   const token = await larkToken(config);
-  const [thuyRows, yenRows, deliveryRows, vehicleSheets] = await Promise.all([
-    larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token),
-    larkRows(config.sources.delivery, token), larkSheets(config.sources.vehicle.spreadsheetToken, token)
+  const [thuyTnSource, yenTnSource, vehicleSheets, vehicleTnSheets] = await Promise.all([
+    resolveLarkSource(config.sources.thuyTn, token), resolveLarkSource(config.sources.yenTn, token),
+    larkSheets(config.sources.vehicle.spreadsheetToken, token), larkSheets(config.sources.vehicleTn.spreadsheetToken, token)
   ]);
-  const vehicleSources = vehicleSheets.filter(sheet => !sheet.hidden).map(sheet => ({ ...config.sources.vehicle, sheetId: sheet.sheet_id || sheet.sheetId, label: sheet.title || sheet.name || sheet.sheet_id }));
+  const [thuyRows, yenRows, thuyTnRows, yenTnRows, deliveryRows] = await Promise.all([
+    larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token),
+    larkRows(thuyTnSource, token), larkRows(yenTnSource, token), larkRows(config.sources.delivery, token)
+  ]);
+  const monthlySources = (sheetsInFile, source) => sheetsInFile.filter(sheet => !sheet.hidden).map(sheet => ({ ...source, sheetId: sheet.sheet_id || sheet.sheetId, label: `${source.label} · ${sheet.title || sheet.name || sheet.sheet_id}` }));
+  const vehicleSources = [...monthlySources(vehicleSheets, config.sources.vehicle), ...monthlySources(vehicleTnSheets, config.sources.vehicleTn)];
   const vehicleRows = await Promise.all(vehicleSources.map(source => larkRows(source, token).catch(error => { console.error(`Skip Lark vehicle sheet ${source.label}: ${error.message}`); return []; })));
   const value = {
-    warehouses: [tableFromRows(thuyRows, ['MÃ HÀNG']), tableFromRows(yenRows, ['MÃ HÀNG'])],
+    warehouses: [thuyRows, yenRows, thuyTnRows, yenTnRows].map(rows => tableFromRows(rows, ['MÃ HÀNG'])),
     vehicles: vehicleRows.map(rows => tableFromRows(rows, ['BIỂN SỐ XE', 'TRẠNG THÁI'])).filter(table => table.cols.length),
     deliveries: tableFromRows(deliveryRows, ['MÃ HÀNG', 'SỐ KIỆN THỰC GIAO']),
     vehicleTabs: vehicleSources.map(source => source.label)
@@ -213,7 +225,7 @@ async function trackingOrder(code) {
   const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')], true) : '';
   const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
   const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate], true), packages: cell(item, deliveryPackages) }));
-  return { source: 'lark-v2', found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
+  return { source: 'lark-v3', found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
 }
 function allowTrackingOrigin(req, res) {
   const origin = req.headers.origin || '';
@@ -265,7 +277,7 @@ http.createServer(async (req, res) => {
   if (pathname === '/api/tracking-health' && req.method === 'GET') {
     try {
       const data = await trackingTables();
-      return send(res, 200, { ok: true, source: 'lark-v2', warehouses: data.warehouses.map(table => table.rows.length), vehicleTabs: data.vehicleTabs, vehicleRows: data.vehicles.map(table => table.rows.length), deliveries: data.deliveries.rows.length });
+      return send(res, 200, { ok: true, source: 'lark-v3', warehouses: data.warehouses.map(table => table.rows.length), vehicleTabs: data.vehicleTabs, vehicleRows: data.vehicles.map(table => table.rows.length), deliveries: data.deliveries.rows.length });
     } catch (error) { return send(res, 502, { ok: false, error: error.message }); }
   }
   if (pathname === '/api/login' && req.method === 'POST') {
