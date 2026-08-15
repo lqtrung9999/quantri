@@ -157,7 +157,7 @@ function column(cols, ...names) {
   return -1;
 }
 function cell(row, index) { return index >= 0 ? String(row[index] ?? '').trim() : ''; }
-function larkDate(value) {
+function larkDate(value, monthFirstInput = false) {
   if (value == null || value === '') return '';
   if (typeof value === 'number') {
     const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
@@ -168,7 +168,7 @@ function larkDate(value) {
   }
   const text = String(value).trim();
   const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
-  return text;
+  return matched && monthFirstInput ? `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}` : text;
 }
 function dateFromVehicle(value) {
   const match = String(value || '').trim().match(/(?:^|[-.])(\d{1,2})[.\/-](\d{1,2})$/);
@@ -202,17 +202,17 @@ async function trackingTables() {
 async function trackingOrder(code) {
   const data = await trackingTables();
   let found = null;
-  for (const table of data.warehouses) {
+  for (const [warehouseIndex, table] of data.warehouses.entries()) {
     const codeColumn = column(table.cols, 'MÃ HÀNG');
     const row = table.rows.find(item => normalized(cell(item, codeColumn)) === normalized(code));
-    if (row) { found = { table, row }; break; }
+    if (row) { found = { table, row, monthFirstDates: warehouseIndex >= 2 }; break; }
   }
   if (!found) return { found: false, code };
-  const { table, row } = found;
+  const { table, row, monthFirstDates } = found;
   const officialCode = cell(row, column(table.cols, 'MÃ HÀNG'));
-  const entered = larkDate(row[column(table.cols, 'NGÀY/ THÁNG', 'NGÀY THÁNG', 'NGÀY VỀ KHO TQ', 'NGÀY NHẬP KHO', 'NGÀY')]);
+  const entered = larkDate(row[column(table.cols, 'NGÀY/ THÁNG', 'NGÀY THÁNG', 'NGÀY VỀ KHO TQ', 'NGÀY NHẬP KHO', 'NGÀY')], monthFirstDates);
   const vehicle = cell(row, column(table.cols, 'BIỂN SỐ XE/ CỬA KHẨU', 'BIỂN SỐ XE'));
-  const loaded = larkDate(row[column(table.cols, 'NGÀY BỐC')]) || dateFromVehicle(vehicle);
+  const loaded = larkDate(row[column(table.cols, 'NGÀY BỐC')], monthFirstDates) || dateFromVehicle(vehicle);
   let vehicleRow = null, vehicleTable = null;
   for (const candidate of data.vehicles) {
     const vehicleColumn = column(candidate.cols, 'BIỂN SỐ XE');
