@@ -157,7 +157,7 @@ function larkDate(value, monthFirst = false) {
     if (milliseconds) return new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
   }
   const text = String(value).trim();
-  const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
   return matched && monthFirst ? `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}` : text;
 }
 function dateFromVehicle(value) {
@@ -209,7 +209,7 @@ async function trackingOrder(code) {
   const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')], true) : '';
   const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
   const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate], true), packages: cell(item, deliveryPackages) }));
-  return { found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
+  return { source: 'lark-v2', found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
 }
 function allowTrackingOrigin(req, res) {
   const origin = req.headers.origin || '';
@@ -261,7 +261,7 @@ http.createServer(async (req, res) => {
   if (pathname === '/api/tracking-health' && req.method === 'GET') {
     try {
       const data = await trackingTables();
-      return send(res, 200, { ok: true, warehouses: data.warehouses.map(table => table.rows.length), vehicleTabs: data.vehicleTabs, vehicleRows: data.vehicles.map(table => table.rows.length), deliveries: data.deliveries.rows.length });
+      return send(res, 200, { ok: true, source: 'lark-v2', warehouses: data.warehouses.map(table => table.rows.length), vehicleTabs: data.vehicleTabs, vehicleRows: data.vehicles.map(table => table.rows.length), deliveries: data.deliveries.rows.length });
     } catch (error) { return send(res, 502, { ok: false, error: error.message }); }
   }
   if (pathname === '/api/login' && req.method === 'POST') {
