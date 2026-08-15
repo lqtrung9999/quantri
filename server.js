@@ -163,7 +163,8 @@ function larkDate(value, monthFirstInput = false) {
     const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
     if (milliseconds) {
       const rendered = new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-      return rendered;
+      const parts = rendered.split('/');
+      return monthFirstInput && parts.length === 3 ? `${Number(parts[1])}/${Number(parts[0])}/${parts[2]}` : rendered;
     }
   }
   const text = String(value).trim();
