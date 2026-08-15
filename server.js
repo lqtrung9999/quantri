@@ -17,6 +17,8 @@ const sheets = {
 };
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
 let larkTokenCache = { value: '', expiresAt: 0 };
+let trackingCache = { value: null, expiresAt: 0 };
+const trackingRate = new Map();
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
@@ -119,12 +121,104 @@ async function larkToken(config) {
   return larkTokenCache.value;
 }
 async function larkRows(source, token) {
-  const range = `${source.sheetId}!A1:AS5000`;
+  const range = `${source.sheetId}!A1:AS${source.maxRows || 10000}`;
   const url = `https://open.larksuite.com/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(source.spreadsheetToken)}/values/${encodeURIComponent(range)}`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const body = await response.json();
   if (!response.ok || body.code) throw new Error(body.msg || `Không thể đọc sheet Lark ${source.label || ''}.`);
   return (body.data?.valueRange?.values || []).map(row => row.map(value => value == null ? '' : value));
+}
+async function larkSheets(spreadsheetToken, token) {
+  const url = `https://open.larksuite.com/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const body = await response.json();
+  if (!response.ok || body.code) throw new Error(body.msg || 'Không thể đọc danh sách sheet Lark.');
+  return body.data?.sheets || [];
+}
+function normalized(value) {
+  return String(value ?? '').trim().toLocaleUpperCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D').replace(/[^A-Z0-9]/g, '');
+}
+function tableFromRows(rows, requiredHeaders) {
+  const headerIndex = rows.findIndex(row => requiredHeaders.every(name => row.some(cellValue => normalized(cellValue) === normalized(name))));
+  if (headerIndex < 0) return { cols: [], rows: [] };
+  return { cols: rows[headerIndex].map(value => String(value ?? '').trim()), rows: rows.slice(headerIndex + 1).filter(row => row.some(value => String(value ?? '').trim())) };
+}
+function column(cols, ...names) {
+  const normalizedCols = cols.map(normalized);
+  for (const name of names) { const index = normalizedCols.findIndex(value => value === normalized(name)); if (index >= 0) return index; }
+  for (const name of names) { const index = normalizedCols.findIndex(value => value.includes(normalized(name))); if (index >= 0) return index; }
+  return -1;
+}
+function cell(row, index) { return index >= 0 ? String(row[index] ?? '').trim() : ''; }
+function larkDate(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number') {
+    const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
+    if (milliseconds) return new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  }
+  return String(value).trim();
+}
+function dateFromVehicle(value) {
+  const match = String(value || '').trim().match(/(?:^|[-.])(\d{1,2})[.\/-](\d{1,2})$/);
+  return match ? `${match[1]}/${match[2]}/${new Date().getFullYear()}` : '';
+}
+async function trackingTables() {
+  if (trackingCache.value && trackingCache.expiresAt > Date.now()) return trackingCache.value;
+  const config = larkConfig();
+  if (!config?.sources?.vehicle || !config?.sources?.delivery) throw new Error('Nguồn tra cứu Lark chưa được cấu hình đầy đủ.');
+  const token = await larkToken(config);
+  const [thuyRows, yenRows, deliveryRows, vehicleSheets] = await Promise.all([
+    larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token),
+    larkRows(config.sources.delivery, token), larkSheets(config.sources.vehicle.spreadsheetToken, token)
+  ]);
+  const vehicleSources = vehicleSheets.filter(sheet => !sheet.hidden).map(sheet => ({ ...config.sources.vehicle, sheetId: sheet.sheet_id || sheet.sheetId, label: sheet.title || sheet.name || sheet.sheet_id }));
+  const vehicleRows = await Promise.all(vehicleSources.map(source => larkRows(source, token).catch(error => { console.error(`Skip Lark vehicle sheet ${source.label}: ${error.message}`); return []; })));
+  const value = {
+    warehouses: [tableFromRows(thuyRows, ['MÃ HÀNG']), tableFromRows(yenRows, ['MÃ HÀNG'])],
+    vehicles: vehicleRows.map(rows => tableFromRows(rows, ['BIỂN SỐ XE', 'TRẠNG THÁI'])).filter(table => table.cols.length),
+    deliveries: tableFromRows(deliveryRows, ['MÃ HÀNG', 'SỐ KIỆN THỰC GIAO']),
+    vehicleTabs: vehicleSources.map(source => source.label)
+  };
+  trackingCache = { value, expiresAt: Date.now() + 120000 };
+  return value;
+}
+async function trackingOrder(code) {
+  const data = await trackingTables();
+  let found = null;
+  for (const table of data.warehouses) {
+    const codeColumn = column(table.cols, 'MÃ HÀNG');
+    const row = table.rows.find(item => normalized(cell(item, codeColumn)) === normalized(code));
+    if (row) { found = { table, row }; break; }
+  }
+  if (!found) return { found: false, code };
+  const { table, row } = found;
+  const officialCode = cell(row, column(table.cols, 'MÃ HÀNG'));
+  const entered = larkDate(row[column(table.cols, 'NGÀY/ THÁNG', 'NGÀY VÀO KHO')]);
+  const vehicle = cell(row, column(table.cols, 'BIỂN SỐ XE/ CỬA KHẨU', 'BIỂN SỐ XE'));
+  const loaded = larkDate(row[column(table.cols, 'NGÀY BỐC')]) || dateFromVehicle(vehicle);
+  let vehicleRow = null, vehicleTable = null;
+  for (const candidate of data.vehicles) {
+    const vehicleColumn = column(candidate.cols, 'BIỂN SỐ XE');
+    const match = candidate.rows.find(item => normalized(cell(item, vehicleColumn)) === normalized(vehicle));
+    if (match) { vehicleRow = match; vehicleTable = candidate; break; }
+  }
+  const vehicleStatus = vehicleRow ? cell(vehicleRow, column(vehicleTable.cols, 'TRẠNG THÁI')) : '';
+  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')]) : '';
+  const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')]) : '';
+  const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
+  const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate]), packages: cell(item, deliveryPackages) }));
+  return { found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
+}
+function allowTrackingOrigin(req, res) {
+  const origin = req.headers.origin || '';
+  if (['https://kimthanhtinlogistics.vn', 'https://www.kimthanhtinlogistics.vn'].includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+}
+function trackingRateAllowed(req) {
+  const key = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(), now = Date.now(), current = trackingRate.get(key);
+  if (!current || current.resetAt < now) { trackingRate.set(key, { count: 1, resetAt: now + 60000 }); return true; }
+  current.count += 1;
+  return current.count <= 60;
 }
 async function warehouseData() {
   const config = larkConfig();
@@ -154,6 +248,20 @@ async function dashboardData(user) {
 
 http.createServer(async (req, res) => {
   const pathname = decodeURIComponent((req.url || '/').split('?')[0]);
+  if (pathname === '/api/tracking' && req.method === 'GET') {
+    allowTrackingOrigin(req, res);
+    if (!trackingRateAllowed(req)) return send(res, 429, { error: 'Bạn đang tra cứu quá nhanh. Vui lòng thử lại sau ít phút.' });
+    const code = String(new URL(req.url, 'https://hethong.kimthanhtinlogistics.vn').searchParams.get('code') || '').trim();
+    if (!/^[A-Za-z0-9._-]{4,40}$/.test(code)) return send(res, 400, { error: 'Mã hàng không hợp lệ.' });
+    try { return send(res, 200, await trackingOrder(code)); }
+    catch (error) { console.error(`Tracking API failed: ${error.message}`); return send(res, 502, { error: 'Chưa thể đồng bộ dữ liệu Lark.' }); }
+  }
+  if (pathname === '/api/tracking-health' && req.method === 'GET') {
+    try {
+      const data = await trackingTables();
+      return send(res, 200, { ok: true, warehouses: data.warehouses.map(table => table.rows.length), vehicleTabs: data.vehicleTabs, vehicleRows: data.vehicles.map(table => table.rows.length), deliveries: data.deliveries.rows.length });
+    } catch (error) { return send(res, 502, { ok: false, error: error.message }); }
+  }
   if (pathname === '/api/login' && req.method === 'POST') {
     try {
       const { username, password } = await readJson(req);
