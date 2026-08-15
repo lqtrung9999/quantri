@@ -154,7 +154,11 @@ function larkDate(value, monthFirst = false) {
   if (value == null || value === '') return '';
   if (typeof value === 'number') {
     const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
-    if (milliseconds) return new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    if (milliseconds) {
+      const rendered = new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+      const parts = rendered.split('/');
+      return monthFirst && parts.length === 3 ? `${Number(parts[1])}/${Number(parts[0])}/${parts[2]}` : rendered;
+    }
   }
   const text = String(value).trim();
   const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
