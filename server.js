@@ -150,13 +150,15 @@ function column(cols, ...names) {
   return -1;
 }
 function cell(row, index) { return index >= 0 ? String(row[index] ?? '').trim() : ''; }
-function larkDate(value) {
+function larkDate(value, monthFirst = false) {
   if (value == null || value === '') return '';
   if (typeof value === 'number') {
     const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
     if (milliseconds) return new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
   }
-  return String(value).trim();
+  const text = String(value).trim();
+  const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  return matched && monthFirst ? `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}` : text;
 }
 function dateFromVehicle(value) {
   const match = String(value || '').trim().match(/(?:^|[-.])(\d{1,2})[.\/-](\d{1,2})$/);
@@ -203,10 +205,10 @@ async function trackingOrder(code) {
     if (match) { vehicleRow = match; vehicleTable = candidate; break; }
   }
   const vehicleStatus = vehicleRow ? cell(vehicleRow, column(vehicleTable.cols, 'TRẠNG THÁI')) : '';
-  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')]) : '';
-  const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')]) : '';
+  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')], true) : '';
+  const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')], true) : '';
   const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
-  const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate]), packages: cell(item, deliveryPackages) }));
+  const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate], true), packages: cell(item, deliveryPackages) }));
   return { found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
 }
 function allowTrackingOrigin(req, res) {
