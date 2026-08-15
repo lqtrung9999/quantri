@@ -157,19 +157,18 @@ function column(cols, ...names) {
   return -1;
 }
 function cell(row, index) { return index >= 0 ? String(row[index] ?? '').trim() : ''; }
-function larkDate(value, monthFirst = false) {
+function larkDate(value) {
   if (value == null || value === '') return '';
   if (typeof value === 'number') {
     const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
     if (milliseconds) {
       const rendered = new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-      const parts = rendered.split('/');
-      return monthFirst && parts.length === 3 ? `${Number(parts[1])}/${Number(parts[0])}/${parts[2]}` : rendered;
+      return rendered;
     }
   }
   const text = String(value).trim();
   const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
-  return matched && monthFirst ? `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}` : text;
+  return text;
 }
 function dateFromVehicle(value) {
   const match = String(value || '').trim().match(/(?:^|[-.])(\d{1,2})[.\/-](\d{1,2})$/);
@@ -211,7 +210,7 @@ async function trackingOrder(code) {
   if (!found) return { found: false, code };
   const { table, row } = found;
   const officialCode = cell(row, column(table.cols, 'MÃ HÀNG'));
-  const entered = larkDate(row[column(table.cols, 'NGÀY/ THÁNG', 'NGÀY VÀO KHO')]);
+  const entered = larkDate(row[column(table.cols, 'NGÀY/ THÁNG', 'NGÀY THÁNG', 'NGÀY VỀ KHO TQ', 'NGÀY NHẬP KHO', 'NGÀY')]);
   const vehicle = cell(row, column(table.cols, 'BIỂN SỐ XE/ CỬA KHẨU', 'BIỂN SỐ XE'));
   const loaded = larkDate(row[column(table.cols, 'NGÀY BỐC')]) || dateFromVehicle(vehicle);
   let vehicleRow = null, vehicleTable = null;
@@ -221,10 +220,10 @@ async function trackingOrder(code) {
     if (match) { vehicleRow = match; vehicleTable = candidate; break; }
   }
   const vehicleStatus = vehicleRow ? cell(vehicleRow, column(vehicleTable.cols, 'TRẠNG THÁI')) : '';
-  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')], true) : '';
-  const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')], true) : '';
+  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')]) : '';
+  const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')]) : '';
   const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
-  const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate], true), packages: cell(item, deliveryPackages) }));
+  const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate]), packages: cell(item, deliveryPackages) }));
   return { source: 'lark-v3', found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
 }
 function allowTrackingOrigin(req, res) {
