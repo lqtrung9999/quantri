@@ -81,7 +81,7 @@ function currentUser(req) {
     return session.exp > Date.now() ? users().find(user => user.id === session.id && user.active !== false) || null : null;
   } catch { return null; }
 }
-function profile(user) { return { id: user.id, name: user.name, role: user.role, sale: user.sale || null }; }
+function profile(user) { return { id: user.id, name: user.name, role: user.role, sale: user.sale || null, team: leaderTeam(user) }; }
 function readJson(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Dữ liệu không hợp lệ')); } }); req.on('error', reject); }); }
 async function larkToken(config) {
   if (larkTokenCache.value && larkTokenCache.expiresAt > Date.now()) return larkTokenCache.value;
@@ -126,6 +126,10 @@ async function resolveLarkSource(source, token) {
 }
 function normalized(value) {
   return String(value ?? '').trim().toLocaleUpperCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D').replace(/[^A-Z0-9]/g, '');
+}
+function leaderTeam(user) {
+  const sale = normalized(user?.sale || user?.name);
+  return sale === 'TP5THAM' ? 'P5' : sale === 'TP8TUAN' ? 'P8' : null;
 }
 function tableFromRows(rows, requiredHeaders) {
   const headerIndex = rows.findIndex(row => requiredHeaders.every(name => row.some(cellValue => normalized(cellValue) === normalized(name))));
@@ -316,12 +320,17 @@ async function debtData(report = 'cn') {
   const canonicalWarehouses = report === 'ck' ? [canonicalCkWarehouseRows(thuyWarehouse), canonicalCkWarehouseRows(yenWarehouse)] : [thuyWarehouse, yenWarehouse];
   return [asDashboardDebtRows(thuyRows, thuyFormulaRows, roomByCustomer(canonicalWarehouses[0])), asDashboardDebtRows(yenRows, yenFormulaRows, roomByCustomer(canonicalWarehouses[1]))];
 }
-async function dashboardData(user, report = 'cn') {
+async function dashboardData(user, report = 'cn', scope = 'personal') {
   const [[debtThuy, debtYen], [warehouseThuy, warehouseYen]] = await Promise.all([
     debtData(report),
     warehouseData(report)
   ]);
   if (user.role === 'sale') {
+    const team = leaderTeam(user);
+    if (scope === 'team' && team) {
+      const filterTeam = rows => rows.filter(row => String(row[8] || '').trim().toLocaleUpperCase('vi-VN').startsWith(team));
+      return { thuy: { debt: [], warehouse: filterTeam(warehouseThuy) }, yen: { debt: [], warehouse: filterTeam(warehouseYen) } };
+    }
     const allowedSales = [user.sale, ...(user.saleAliases || [])]
       .map(value => String(value || '').trim().toLocaleLowerCase('vi-VN'))
       .filter(Boolean);
@@ -410,7 +419,7 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 502, { error: error.message || 'Không thể lưu CRM.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
-  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const report = new URL(req.url, 'https://dashboard.local').searchParams.get('report') === 'ck' ? 'ck' : 'cn'; return send(res, 200, { user: profile(user), report, data: await dashboardData(user, report) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
+  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
