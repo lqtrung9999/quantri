@@ -50,7 +50,7 @@
     function date(v){const a=String(v||'').trim().split('/');if(a.length!==3)return null;let [d,m,y]=a.map(Number);if(y<100)y+=2000;const x=new Date(y,m-1,d);return Number.isNaN(x)?null:x}
     function key(d){return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`:null}
     function prepare(){
-      raw.debt=(raw.debt||[]).map(r=>({room:r[0]||'',customer:r[1]||'',opening:integer(r[2]),debt2026:integer(r[3]),paid:integer(r[4])})).filter(x=>x.customer).map(x=>({...x,balance:x.opening+x.debt2026-x.paid}));
+      raw.debt=(raw.debt||[]).map(r=>({room:r[0]||'',customer:r[1]||'',opening:integer(r[2]),debt2026:integer(r[3]),paid:integer(r[4]),balance:integer(r[5])})).filter(x=>x.customer);
       raw.warehouseDetail=(raw.warehouse||[]).map(r=>{const m3=decimal(r[12]);return {date:date(r[0]),code:r[3]||'',packages:integer(r[4]),item:r[5]||'',kg:decimal(r[11]),m3:m3>=1000?0:m3,row:r,source:r[10]||''}}).filter(x=>x.code);
       raw.warehouse=raw.warehouseDetail.filter(x=>x.date);
       raw.sales=(raw.sales||[]).map(r=>({date:date(r[0]),code:r[3]||'',customer:r[7]||'',sale:r[8]||'Chưa phân loại',room:r[9]||'',revenue:integer(r[37])})).filter(x=>x.date&&x.code);

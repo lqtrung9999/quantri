@@ -307,7 +307,7 @@ async function debtData(report = 'cn') {
       .filter(row => cell(row, customer))
       .map(row => {
         const customerName = cell(row, customer);
-        return [cell(row, room) || (room < 0 ? cell(row, 0) : '') || inferredRooms.get(normalized(customerName)) || '', customerName, row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0];
+        return [cell(row, room) || (room < 0 ? cell(row, 0) : '') || inferredRooms.get(normalized(customerName)) || '', customerName, row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0, row[balance] ?? 0];
       });
   };
   const [thuyRows, yenRows, thuyFormulaRows, yenFormulaRows, thuyWarehouse, yenWarehouse] = await Promise.all([
