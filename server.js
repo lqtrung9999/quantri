@@ -157,19 +157,22 @@ function column(cols, ...names) {
   return -1;
 }
 function cell(row, index) { return index >= 0 ? String(row[index] ?? '').trim() : ''; }
+function normalizeLarkDateText(text, monthFirstInput) {
+  const matched = String(text || '').trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
+  if (!matched || !monthFirstInput || Number(matched[1]) > 12) return String(text || '').trim();
+  return `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}`;
+}
 function larkDate(value, monthFirstInput = false) {
   if (value == null || value === '') return '';
   if (typeof value === 'number') {
     const milliseconds = value > 1e12 ? value : value > 1e9 ? value * 1000 : value > 20000 ? (value - 25569) * 86400000 : 0;
     if (milliseconds) {
       const rendered = new Date(milliseconds).toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
-      const parts = rendered.split('/');
-      return monthFirstInput && parts.length === 3 ? `${Number(parts[1])}/${Number(parts[0])}/${parts[2]}` : rendered;
+      return normalizeLarkDateText(rendered, monthFirstInput);
     }
   }
   const text = String(value).trim();
-  const matched = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
-  return matched && monthFirstInput ? `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}` : text;
+  return normalizeLarkDateText(text, monthFirstInput);
 }
 function dateFromVehicle(value) {
   const match = String(value || '').trim().match(/(?:^|[-.])(\d{1,2})[.\/-](\d{1,2})$/);
