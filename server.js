@@ -205,12 +205,17 @@ async function trackingTables() {
 }
 async function trackingOrder(code) {
   const data = await trackingTables();
-  let found = null;
+  const matches = [];
   for (const [warehouseIndex, table] of data.warehouses.entries()) {
     const codeColumn = column(table.cols, 'MÃ HÀNG');
-    const row = table.rows.find(item => normalized(cell(item, codeColumn)) === normalized(code));
-    if (row) { found = { table, row, monthFirstDates: warehouseIndex >= 2 }; break; }
+    for (const row of table.rows.filter(item => normalized(cell(item, codeColumn)) === normalized(code))) {
+      const vehicle = cell(row, column(table.cols, 'BIỂN SỐ XE/ CỬA KHẨU', 'BIỂN SỐ XE'));
+      const loaded = cell(row, column(table.cols, 'NGÀY BỐC'));
+      const score = (dateFromVehicle(vehicle) ? 100 : 0) + (loaded ? 10 : 0) + (vehicle ? 1 : 0) + warehouseIndex;
+      matches.push({ table, row, monthFirstDates: warehouseIndex >= 2, score });
+    }
   }
+  const found = matches.sort((a, b) => b.score - a.score)[0] || null;
   if (!found) return { found: false, code };
   const { table, row, monthFirstDates } = found;
   const officialCode = cell(row, column(table.cols, 'MÃ HÀNG'));
