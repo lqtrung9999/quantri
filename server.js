@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
-const https = require('https');
 const path = require('path');
 
 const publicDir = path.join(__dirname, 'public');
@@ -10,11 +9,6 @@ const crmConfigFile = path.join(__dirname, 'crm-config.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const sheetId = '1CM0In02I0TeN7lxY20G3hEHpU9uJAmGo187opGDzDB4';
-const sheets = {
-  thuy: { debt: 'Công Nợ KH KT Thuỷ', warehouse: 'Hàng vào kho TQ KT Thuỷ' },
-  yen: { debt: 'Công Nợ KH KT Yến', warehouse: 'Hàng vào kho TQ KT Yến' }
-};
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
 let larkTokenCache = { value: '', expiresAt: 0 };
 let trackingCache = { value: null, expiresAt: 0 };
@@ -89,23 +83,6 @@ function currentUser(req) {
 }
 function profile(user) { return { id: user.id, name: user.name, role: user.role, sale: user.sale || null }; }
 function readJson(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Dữ liệu không hợp lệ')); } }); req.on('error', reject); }); }
-function googleRows(sheet) {
-  return new Promise((resolve, reject) => {
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${encodeURIComponent(sheet)}&tqx=out:json`;
-    https.get(url, response => { let data = ''; response.on('data', chunk => data += chunk); response.on('end', () => {
-      try {
-        const result = JSON.parse(data.match(/setResponse\((.*)\);?$/s)[1]);
-        const value = cell => {
-          if (!cell) return null;
-          const date = String(cell.v || '').match(/^Date\((\d+),(\d+),(\d+)\)$/);
-          if (date) return `${String(date[3]).padStart(2, '0')}/${String(Number(date[2]) + 1).padStart(2, '0')}/${date[1]}`;
-          return cell.f ?? cell.v;
-        };
-        resolve((result.table.rows || []).map(row => (row.c || []).map(value)));
-      } catch { reject(new Error(`Không đọc được sheet ${sheet}`)); }
-    }); }).on('error', reject);
-  });
-}
 async function larkToken(config) {
   if (larkTokenCache.value && larkTokenCache.expiresAt > Date.now()) return larkTokenCache.value;
   const response = await fetch('https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal', {
@@ -273,18 +250,23 @@ function trackingRateAllowed(req) {
 }
 async function warehouseData() {
   const config = larkConfig();
-  if (!config) return Promise.all([googleRows(sheets.thuy.warehouse), googleRows(sheets.yen.warehouse)]);
-  try {
-    const token = await larkToken(config);
-    return await Promise.all([larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)]);
-  } catch (error) {
-    console.error(`Lark warehouse sync failed: ${error.message}`);
-    return Promise.all([googleRows(sheets.thuy.warehouse), googleRows(sheets.yen.warehouse)]);
-  }
+  if (!config) throw new Error('Chưa có cấu hình nguồn Lark.');
+  const token = await larkToken(config);
+  return Promise.all([larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)]);
+}
+async function debtData() {
+  const config = larkConfig();
+  if (!config?.sources?.thuyDebt || !config.sources.yenDebt) throw new Error('Chưa có cấu hình công nợ Lark.');
+  const token = await larkToken(config);
+  const [thuySource, yenSource] = await Promise.all([
+    resolveLarkSource(config.sources.thuyDebt, token),
+    resolveLarkSource(config.sources.yenDebt, token)
+  ]);
+  return Promise.all([larkRows(thuySource, token), larkRows(yenSource, token)]);
 }
 async function dashboardData(user) {
   const [[debtThuy, debtYen], [warehouseThuy, warehouseYen]] = await Promise.all([
-    Promise.all([googleRows(sheets.thuy.debt), googleRows(sheets.yen.debt)]),
+    debtData(),
     warehouseData()
   ]);
   if (user.role === 'sale') {
@@ -376,7 +358,7 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 502, { error: error.message || 'Không thể lưu CRM.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
-  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { return send(res, 200, { user: profile(user), data: await dashboardData(user) }); } catch { return send(res, 502, { error: 'Không thể tải dữ liệu Dashboard.' }); } }
+  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { return send(res, 200, { user: profile(user), data: await dashboardData(user) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
