@@ -174,6 +174,24 @@ function larkDate(value, monthFirstInput = false) {
   const text = String(value).trim();
   return normalizeLarkDateText(text, monthFirstInput);
 }
+function vietnameseDateStamp(value) {
+  const matched = String(value || '').trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!matched) return NaN;
+  const day = Number(matched[1]), month = Number(matched[2]), year = Number(matched[3]);
+  const stamp = Date.UTC(year, month - 1, day), date = new Date(stamp);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? stamp : NaN;
+}
+function larkDateInRange(value, earliest, latest) {
+  const rendered = larkDate(value), matched = rendered.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!matched) return rendered;
+  const candidates = [rendered];
+  if (Number(matched[1]) <= 12 && Number(matched[2]) <= 12) candidates.push(`${Number(matched[2])}/${Number(matched[1])}/${matched[3]}`);
+  const minimum = vietnameseDateStamp(earliest), maximum = vietnameseDateStamp(latest);
+  return candidates.find(candidate => {
+    const stamp = vietnameseDateStamp(candidate);
+    return Number.isFinite(stamp) && (!Number.isFinite(minimum) || stamp >= minimum) && (!Number.isFinite(maximum) || stamp <= maximum);
+  }) || rendered;
+}
 function dateFromVehicle(value) {
   const match = String(value || '').trim().match(/(?:^|[-.])(\d{1,2})[.\/-](\d{1,2})$/);
   return match ? `${match[1]}/${match[2]}/${new Date().getFullYear()}` : '';
@@ -236,8 +254,8 @@ async function trackingOrder(code) {
   const vehicleMatch = vehicleMatches.sort((a, b) => b.score - a.score)[0] || null;
   const vehicleRow = vehicleMatch?.row || null, vehicleTable = vehicleMatch?.table || null;
   const vehicleStatus = vehicleRow ? cell(vehicleRow, column(vehicleTable.cols, 'TRẠNG THÁI')) : '';
-  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')]) : '';
   const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')]) : '';
+  const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDateInRange(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')], loaded, hanoi) : '';
   const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
   const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate]), packages: cell(item, deliveryPackages) }));
   return { source: 'lark-v3', found: true, code: officialCode, entered, vehicle, loaded, vehicleStatus, customs, hanoi, deliveries };
