@@ -99,27 +99,11 @@ async function larkToken(config) {
 }
 async function larkRows(source, token) {
   const range = `${source.sheetId}!A1:AS${source.maxRows || 10000}`;
-  const url = `https://open.larksuite.com/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(source.spreadsheetToken)}/values/${encodeURIComponent(range)}`;
+  const url = `https://open.larksuite.com/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(source.spreadsheetToken)}/values/${encodeURIComponent(range)}?valueRenderOption=UnformattedValue`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const body = await response.json();
   if (!response.ok || body.code) throw new Error(body.msg || `Không thể đọc sheet Lark ${source.label || ''}.`);
-  return (body.data?.valueRange?.values || []).map(row => normalizeLarkFormulaValues(row.map(value => value == null ? '' : value)));
-}
-function wholeNumber(value) {
-  const parsed = Number(String(value ?? '').replace(/[^0-9-]/g, ''));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-function normalizeLarkFormulaValues(row) {
-  // Lark Sheets returns the formula text for this calculated column through the
-  // values API. Its source formula is IF(AG>0,AC,AC-W-V), so materialize the
-  // equivalent amount from the underlying numeric cells for Dashboard reports.
-  if (/^=?IF\(/i.test(String(row[37] || '').trim())) {
-    const freightAmount = wholeNumber(row[28]); // AC: Thành tiền cước VC
-    const importTax = wholeNumber(row[21]); // V: Thuế NK
-    const vat = wholeNumber(row[22]); // W: Thuế VAT
-    row[37] = wholeNumber(row[32]) > 0 ? freightAmount : freightAmount - vat - importTax;
-  }
-  return row;
+  return (body.data?.valueRange?.values || []).map(row => row.map(value => value == null ? '' : value));
 }
 async function larkSheets(spreadsheetToken, token) {
   const url = `https://open.larksuite.com/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`;
@@ -278,7 +262,19 @@ async function debtData() {
     resolveLarkSource(config.sources.thuyDebt, token),
     resolveLarkSource(config.sources.yenDebt, token)
   ]);
-  return Promise.all([larkRows(thuySource, token), larkRows(yenSource, token)]);
+  const asDashboardDebtRows = rows => {
+    const table = tableFromRows(rows, ['PHÒNG', 'CHỦ HÀNG']);
+    const room = column(table.cols, 'PHÒNG');
+    const customer = column(table.cols, 'CHỦ HÀNG');
+    const opening = column(table.cols, 'TỒN ĐẦU NĂM');
+    const debt = column(table.cols, 'CÔNG NỢ 2026', 'CÔNG NỢ 2025');
+    const paid = column(table.cols, 'ĐÃ THANH TOÁN');
+    return table.rows
+      .filter(row => cell(row, customer))
+      .map(row => [cell(row, room), cell(row, customer), row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0]);
+  };
+  const [thuyRows, yenRows] = await Promise.all([larkRows(thuySource, token), larkRows(yenSource, token)]);
+  return [asDashboardDebtRows(thuyRows), asDashboardDebtRows(yenRows)];
 }
 async function dashboardData(user) {
   const [[debtThuy, debtYen], [warehouseThuy, warehouseYen]] = await Promise.all([
