@@ -222,18 +222,25 @@ async function trackingOrder(code) {
   const entered = larkDate(row[column(table.cols, 'NGÀY/ THÁNG', 'NGÀY THÁNG', 'NGÀY VỀ KHO TQ', 'NGÀY NHẬP KHO', 'NGÀY')], monthFirstDates);
   const vehicle = cell(row, column(table.cols, 'BIỂN SỐ XE/ CỬA KHẨU', 'BIỂN SỐ XE'));
   const loaded = larkDate(row[column(table.cols, 'NGÀY BỐC')], monthFirstDates) || dateFromVehicle(vehicle);
-  let vehicleRow = null, vehicleTable = null;
-  for (const candidate of data.vehicles) {
+  const vehicleMatches = [];
+  for (const [vehicleTableIndex, candidate] of data.vehicles.entries()) {
     const vehicleColumn = column(candidate.cols, 'BIỂN SỐ XE');
-    const match = candidate.rows.find(item => normalized(cell(item, vehicleColumn)) === normalized(vehicle));
-    if (match) { vehicleRow = match; vehicleTable = candidate; break; }
+    for (const match of candidate.rows.filter(item => normalized(cell(item, vehicleColumn)) === normalized(vehicle))) {
+      const status = cell(match, column(candidate.cols, 'TRẠNG THÁI'));
+      const customsDate = cell(match, column(candidate.cols, 'NGÀY THÔNG QUAN'));
+      const hanoiDate = cell(match, column(candidate.cols, 'NGÀY HẠ KHO HN'));
+      const score = (hanoiDate ? 1000 : 0) + (normalized(status) === normalized('ĐÃ THÔNG QUAN') ? 500 : 0) + (customsDate ? 200 : 0) + vehicleTableIndex;
+      vehicleMatches.push({ row: match, table: candidate, score });
+    }
   }
+  const vehicleMatch = vehicleMatches.sort((a, b) => b.score - a.score)[0] || null;
+  const vehicleRow = vehicleMatch?.row || null, vehicleTable = vehicleMatch?.table || null;
   const vehicleStatus = vehicleRow ? cell(vehicleRow, column(vehicleTable.cols, 'TRẠNG THÁI')) : '';
   const customs = normalized(vehicleStatus) === normalized('ĐÃ THÔNG QUAN') ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY THÔNG QUAN')]) : '';
   const hanoi = vehicleRow ? larkDate(vehicleRow[column(vehicleTable.cols, 'NGÀY HẠ KHO HN')]) : '';
   const deliveryCode = column(data.deliveries.cols, 'MÃ HÀNG'), deliveryDate = column(data.deliveries.cols, 'NGÀY'), deliveryPackages = column(data.deliveries.cols, 'SỐ KIỆN THỰC GIAO');
   const deliveries = data.deliveries.rows.filter(item => normalized(cell(item, deliveryCode)) === normalized(officialCode)).map(item => ({ date: larkDate(item[deliveryDate]), packages: cell(item, deliveryPackages) }));
-  return { source: 'lark-v3', found: true, code: officialCode, entered, vehicle, loaded, customs, hanoi, deliveries };
+  return { source: 'lark-v3', found: true, code: officialCode, entered, vehicle, loaded, vehicleStatus, customs, hanoi, deliveries };
 }
 function allowTrackingOrigin(req, res) {
   const origin = req.headers.origin || '';
