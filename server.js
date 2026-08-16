@@ -253,19 +253,36 @@ function trackingRateAllowed(req) {
   current.count += 1;
   return current.count <= 60;
 }
-async function warehouseData() {
+function canonicalCkWarehouseRows(rows) {
+  const headers = Array(45).fill('');
+  Object.assign(headers, { 0: 'NGÀY/ THÁNG', 3: 'MÃ HÀNG', 4: 'SỐ KIỆN', 5: 'TÊN HÀNG', 6: 'MÃ KH', 7: 'CHỦ HÀNG', 8: 'SALE', 9: 'Phòng Sale', 10: 'Kế toán', 11: 'KG', 12: 'M3', 34: 'TỔNG KH THANH TOÁN', 35: 'TRẠNG THÁI', 37: 'DOANH SỐ THỰC', 39: 'NGÀY BỐC', 40: 'BIỂN SỐ XE/ CỬA KHẨU', 41: 'SỐ KIỆN BỐC', 42: 'TỒN KHO', 44: 'PHÍ VẬN CHUYỂN/M3' });
+  return [headers, ...rows.slice(2).filter(row => row[1]).map(row => {
+    const value = Array(45).fill('');
+    value[0] = larkDate(row[0]); value[3] = row[1]; value[4] = row[2]; value[5] = row[3];
+    value[6] = row[11]; value[7] = row[12]; value[8] = row[13]; value[9] = row[14]; value[10] = row[15];
+    value[11] = row[4]; value[12] = row[5]; value[34] = row[19]; value[35] = row[18]; value[37] = row[20];
+    value[39] = larkDate(row[21]); value[40] = row[22]; value[41] = row[23]; value[42] = row[24]; value[44] = row[26];
+    return value;
+  })];
+}
+async function warehouseData(report = 'cn') {
   const config = larkConfig();
   if (!config) throw new Error('Chưa có cấu hình nguồn Lark.');
+  const sources = report === 'ck' ? [config.sources.thuyCk, config.sources.yenCk] : [config.sources.thuy, config.sources.yen];
+  if (sources.some(source => !source)) throw new Error('Chưa có cấu hình dữ liệu hàng CK trên Lark.');
   const token = await larkToken(config);
-  return Promise.all([larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)]);
+  const rows = await Promise.all(sources.map(source => larkRows(source, token)));
+  return report === 'ck' ? rows.map(canonicalCkWarehouseRows) : rows;
 }
-async function debtData() {
+async function debtData(report = 'cn') {
   const config = larkConfig();
-  if (!config?.sources?.thuyDebt || !config.sources.yenDebt) throw new Error('Chưa có cấu hình công nợ Lark.');
+  const debtKeys = report === 'ck' ? ['thuyCkDebt', 'yenCkDebt'] : ['thuyDebt', 'yenDebt'];
+  const warehouseSources = report === 'ck' ? [config.sources.thuyCk, config.sources.yenCk] : [config.sources.thuy, config.sources.yen];
+  if (!config?.sources?.[debtKeys[0]] || !config.sources[debtKeys[1]] || warehouseSources.some(source => !source)) throw new Error(`Chưa có cấu hình công nợ ${report.toUpperCase()} trên Lark.`);
   const token = await larkToken(config);
   const [thuySource, yenSource] = await Promise.all([
-    resolveLarkSource(config.sources.thuyDebt, token),
-    resolveLarkSource(config.sources.yenDebt, token)
+    resolveLarkSource(config.sources[debtKeys[0]], token),
+    resolveLarkSource(config.sources[debtKeys[1]], token)
   ]);
   const roomByCustomer = rows => new Map(rows.slice(1).reduce((items, row) => {
     const customer = normalized(row[7]);
@@ -274,14 +291,15 @@ async function debtData() {
     return items;
   }, []));
   const asDashboardDebtRows = (rows, formulaRows, inferredRooms) => {
-    const table = tableFromRows(rows, ['PHÒNG', 'CHỦ HÀNG']);
-    const headerIndex = rows.findIndex(row => ['PHÒNG', 'CHỦ HÀNG'].every(name => row.some(value => normalized(value) === normalized(name))));
-    const room = column(table.cols, 'PHÒNG');
-    const customer = column(table.cols, 'CHỦ HÀNG');
+    const headerIndex = rows.findIndex(row => row.some(value => ['CHỦ HÀNG', 'TÊN KHÁCH'].some(name => normalized(value) === normalized(name))));
+    if (headerIndex < 0) throw new Error('Không tìm thấy cột khách hàng trong dữ liệu công nợ Lark.');
+    const table = { cols: rows[headerIndex].map(value => String(value ?? '').trim()), rows: rows.slice(headerIndex + 1) };
+    const room = column(table.cols, 'PHÒNG', 'PHONG');
+    const customer = column(table.cols, 'CHỦ HÀNG', 'TÊN KHÁCH');
     const opening = column(table.cols, 'TỒN ĐẦU NĂM');
     const debt = column(table.cols, 'CÔNG NỢ 2026', 'CÔNG NỢ 2025');
     const paid = column(table.cols, 'ĐÃ THANH TOÁN');
-    const balance = column(table.cols, 'CÔNG NỢ TỒN', 'CÔNG NỢ');
+    const balance = column(table.cols, 'CÔNG NỢ TỒN', 'CÔNG NỢ', 'CÒN NỢ TỒN');
     const summaryFormula = String((formulaRows[headerIndex + 1] || [])[balance] || '');
     const endRow = Number((summaryFormula.match(/:[A-Z]+(\d+)\)/i) || [])[1]) || Infinity;
     return table.rows
@@ -289,18 +307,19 @@ async function debtData() {
       .filter(row => cell(row, customer))
       .map(row => {
         const customerName = cell(row, customer);
-        return [cell(row, room) || inferredRooms.get(normalized(customerName)) || '', customerName, row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0];
+        return [cell(row, room) || (room < 0 ? cell(row, 0) : '') || inferredRooms.get(normalized(customerName)) || '', customerName, row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0];
       });
   };
   const [thuyRows, yenRows, thuyFormulaRows, yenFormulaRows, thuyWarehouse, yenWarehouse] = await Promise.all([
-    larkRows(thuySource, token), larkRows(yenSource, token), larkRows(thuySource, token, 'Formula'), larkRows(yenSource, token, 'Formula'), larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)
+    larkRows(thuySource, token), larkRows(yenSource, token), larkRows(thuySource, token, 'Formula'), larkRows(yenSource, token, 'Formula'), larkRows(warehouseSources[0], token), larkRows(warehouseSources[1], token)
   ]);
-  return [asDashboardDebtRows(thuyRows, thuyFormulaRows, roomByCustomer(thuyWarehouse)), asDashboardDebtRows(yenRows, yenFormulaRows, roomByCustomer(yenWarehouse))];
+  const canonicalWarehouses = report === 'ck' ? [canonicalCkWarehouseRows(thuyWarehouse), canonicalCkWarehouseRows(yenWarehouse)] : [thuyWarehouse, yenWarehouse];
+  return [asDashboardDebtRows(thuyRows, thuyFormulaRows, roomByCustomer(canonicalWarehouses[0])), asDashboardDebtRows(yenRows, yenFormulaRows, roomByCustomer(canonicalWarehouses[1]))];
 }
-async function dashboardData(user) {
+async function dashboardData(user, report = 'cn') {
   const [[debtThuy, debtYen], [warehouseThuy, warehouseYen]] = await Promise.all([
-    debtData(),
-    warehouseData()
+    debtData(report),
+    warehouseData(report)
   ]);
   if (user.role === 'sale') {
     const allowedSales = [user.sale, ...(user.saleAliases || [])]
@@ -391,7 +410,7 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 502, { error: error.message || 'Không thể lưu CRM.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
-  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { return send(res, 200, { user: profile(user), data: await dashboardData(user) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
+  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const report = new URL(req.url, 'https://dashboard.local').searchParams.get('report') === 'ck' ? 'ck' : 'cn'; return send(res, 200, { user: profile(user), report, data: await dashboardData(user, report) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');

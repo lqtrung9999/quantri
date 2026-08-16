@@ -8,6 +8,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script>
+    (() => {
+      const report = new URLSearchParams(location.search).get('report') === 'ck' ? 'ck' : 'cn';
+      const request = window.fetch.bind(window);
+      window.fetch = (input, init) => input === '/api/data' ? request(`/api/data?report=${report}`, init) : request(input, init);
+    })();
+  </script>
   <style>
     :root { --ink:#231b0b; --muted:#78663a; --bg:#f5f1e8; --card:#fffdf8; --line:#e0d5bb; --brand:#b98516; --green:#9a7117; --orange:#d9ad2b; --red:#c74632; }
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -28,7 +35,7 @@
   <header><div class="brand-lockup"><img class="brand-logo" src="logo-kim-thanh-tin-transparent.png" alt="Logo Kim Thành Tín Logistics"><div><h1>Báo Cáo Quản Trị Nội Bộ Kim Thành Tín</h1><div class="sub">Công nợ · doanh số sale · hàng vào kho Trung Quốc</div></div></div><div class="status"><button class="refresh" id="refresh">↻ Cập nhật dữ liệu</button><button class="refresh" id="changePassword">Đổi mật khẩu</button><button class="refresh" id="logout">Đăng xuất</button><br><span id="userName"></span><br><span id="updated">Đang tải dữ liệu…</span></div></header>
   <main>
     <nav class="tabs" aria-label="Nội dung báo cáo"><button class="tab active" data-view="overview">Tổng quan</button><button class="tab" data-view="debt">Công nợ khách hàng</button><button class="tab" data-view="warehouse">Hàng vào kho</button><button class="tab" data-view="sales">Doanh số sale</button><button class="tab" data-view="alerts">Cảnh báo khách hàng</button><button class="tab" data-view="sales-report">Báo cáo Sale</button><a class="tab" href="/crm.html">CRM khách tiềm năng</a></nav>
-    <div class="filters"><div><label for="accountant">Kế toán</label><select id="accountant"><option value="total">Tổng — Thủy và Yến</option><option value="thuy">Kế toán Thủy</option><option value="yen">Kế toán Yến</option></select><label for="month" style="margin-left:14px">Kỳ báo cáo</label><select id="month"></select></div><div id="rangeText" class="sub" style="color:var(--muted)"></div></div>
+    <div class="filters"><div><label for="report">Mảng hàng</label><select id="report"><option value="cn">Báo Cáo CN</option><option value="ck">Báo Cáo CK</option></select><label for="accountant" style="margin-left:14px">Kế toán</label><select id="accountant"><option value="total">Tổng — Thủy và Yến</option><option value="thuy">Kế toán Thủy</option><option value="yen">Kế toán Yến</option></select><label for="month" style="margin-left:14px">Kỳ báo cáo</label><select id="month"></select></div><div id="rangeText" class="sub" style="color:var(--muted)"></div></div>
     <div id="error"></div><section id="dashboard"></section>
   </main><dialog class="password-dialog" id="passwordDialog"><form id="passwordForm"><h2>Đổi mật khẩu</h2><p>Chọn mật khẩu mới dễ nhớ nhưng tối thiểu 8 ký tự.</p><label for="currentPassword">Mật khẩu hiện tại</label><input id="currentPassword" type="password" autocomplete="current-password" required><label for="newPassword">Mật khẩu mới</label><input id="newPassword" type="password" autocomplete="new-password" minlength="8" required><label for="confirmPassword">Xác nhận mật khẩu mới</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" required><div id="passwordMessage" class="password-message"></div><div class="password-actions"><button class="cancel" type="button" id="cancelPassword">Hủy</button><button class="submit" type="submit">Lưu mật khẩu</button></div></form></dialog>
   <script>
@@ -37,7 +44,7 @@
     const $=s=>document.querySelector(s), money=n=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:0}).format(Math.round(n||0))+' ₫', number=n=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:2}).format(n||0), monthName=k=>{const [y,m]=k.split('-');return 'Tháng '+m+'/'+y}, esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const WAREHOUSE_HEADERS=['NGÀY/ THÁNG','NGÀY BỐC XE','NGÀY TRẢ KHÁCH','MÃ HÀNG','SỐ KIỆN','TÊN HÀNG','MÃ KH','CHỦ HÀNG','SALE','Phòng Sale','Kế toán','KG','M3','1. CHI HỘ NỘI ĐỊA','2. CHI HỘ XE LÔI, CP KHÁC','3. CHI HỘ XE NÂNG','NCC','CÂN/KHỐI','ĐƠN GIÁ','CHI PHÍ VC','KTCL; PHÍ KHÁC','THUẾ NK','THUẾ VAT','VC nội địa','Giao hàng VN, phí xe nâng','Tổng phải trả NCC','CÂN/KHỐI','ĐƠN GIÁ','Thành tiền cước VC','KTCL, Phí UTNK','PHÍ NỘI ĐỊA','THUẾ NK','THUẾ VAT','CƯỚC GIAO HÀNG VN','TỔNG KH THANH TOÁN','TRẠNG THÁI','PHÁT SINH (không thu khách)','DOANH SỐ THỰC','DOANH THU','NGÀY BỐC','BIỂN SỐ XE/\nCỬA KHẨU','SỐ KIỆN BỐC','TỒN KHO','CHECK THÁNG','PHÍ VẬN CHUYỂN/M3'];
     const HIDDEN_WAREHOUSE_COLUMNS=new Set([16,17,18,19,20,21,22,23,24,25]), VISIBLE_WAREHOUSE_COLUMNS=WAREHOUSE_HEADERS.map((_,i)=>i).filter(i=>!HIDDEN_WAREHOUSE_COLUMNS.has(i)), NUMERIC_WAREHOUSE_COLUMNS=new Set([4,11,12,13,14,15,26,27,28,29,30,31,32,33,34,36,37,38,41,42,44]);
-    let raw={}, view='overview', month='all', accountant='total', reportSale='all', warehouseSearch='', currentRole='', charts=[];
+    let raw={}, view='overview', month='all', accountant='total', report='cn', reportSale='all', warehouseSearch='', currentRole='', charts=[];
     function integer(v){return Math.round(decimal(v))}
     function decimal(v){if(v==null||v==='')return 0;let s=String(v).trim().replace(/\s/g,'');if(s.includes(',')&&!s.includes('.'))s=s.replace(',','.');else s=s.replace(/,/g,'');s=s.replace(/[^0-9.-]/g,'');return Number(s)||0}
     function date(v){const a=String(v||'').trim().split('/');if(a.length!==3)return null;let [d,m,y]=a.map(Number);if(y<100)y+=2000;const x=new Date(y,m-1,d);return Number.isNaN(x)?null:x}
@@ -75,6 +82,25 @@
     async function start(){try{$('#error').innerHTML='';$('#updated').textContent='Đang tải dữ liệu được phân quyền…';const response=await fetch('/api/data');if(!response.ok){if(response.status===401)location.href='/login';throw Error('Không thể tải dữ liệu.')}const payload=await response.json(), profile=payload.user, data=payload.data, roleLabel={admin:'Admin',accountant:'Kế toán',sale:'Sale'};currentRole=profile.role;$('#userName').textContent=profile.name+' · '+roleLabel[profile.role];const accountLabel=document.querySelector('label[for="accountant"]'), debtTab=document.querySelector('[data-view="debt"]');if(profile.role==='sale'){accountant='total';$('#accountant').value='total';$('#accountant').style.display='none';accountLabel.style.display='none';debtTab.classList.add('hidden')}else{$('#accountant').style.display='';accountLabel.style.display='';debtTab.classList.remove('hidden')}const chosen=accountant==='total'?{debt:[...data.thuy.debt,...data.yen.debt],warehouse:[...data.thuy.warehouse,...data.yen.warehouse]}:data[accountant];raw={debt:chosen.debt,warehouse:chosen.warehouse,sales:chosen.warehouse,companySales:[...data.thuy.warehouse,...data.yen.warehouse]};prepare();const opts=['<option value="all">Toàn bộ dữ liệu</option>',...months().reverse().map(x=>`<option value="${x}">${monthName(x)}</option>`)].join('');$('#month').innerHTML=opts;render();$('#updated').textContent=ACCOUNTS[accountant].label+' · đồng bộ lần cuối: '+new Date().toLocaleString('vi-VN')}catch(e){$('#error').innerHTML='<div class="error">Không thể tải dữ liệu được phân quyền. Hãy thử cập nhật lại hoặc liên hệ Quản trị viên.</div>';$('#updated').textContent='Chưa đồng bộ được dữ liệu';console.error(e)}}
     document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');view=b.dataset.view;render()}));$('#accountant').addEventListener('change',e=>{accountant=e.target.value;month='all';start()});$('#month').addEventListener('change',e=>{month=e.target.value;render()});$('#refresh').addEventListener('click',start);$('#logout').addEventListener('click',async()=>{await fetch('/api/logout',{method:'POST'});location.href='/login'});const passwordDialog=$('#passwordDialog');$('#changePassword').addEventListener('click',()=>{passwordDialog.showModal();$('#passwordForm').reset();$('#passwordMessage').textContent=''});$('#cancelPassword').addEventListener('click',()=>passwordDialog.close());$('#passwordForm').addEventListener('submit',async e=>{e.preventDefault();const message=$('#passwordMessage'),currentPassword=$('#currentPassword').value,newPassword=$('#newPassword').value;if(newPassword!==$('#confirmPassword').value){message.textContent='Xác nhận mật khẩu mới chưa khớp.';return}const response=await fetch('/api/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})}),body=await response.json();if(!response.ok){message.textContent=body.error||'Không thể đổi mật khẩu.';return}passwordDialog.close();alert('Đổi mật khẩu thành công.');});start();
   })();
+  </script>
+  <script>
+    (() => {
+      const report = new URLSearchParams(location.search).get('report') === 'ck' ? 'ck' : 'cn';
+      const selector = document.querySelector('#report');
+      selector.value = report;
+      selector.addEventListener('change', event => {
+        const params = new URLSearchParams(location.search);
+        params.set('report', event.target.value);
+        location.search = params.toString();
+      });
+      document.addEventListener('click', event => {
+        const link = event.target.closest('.sheet-open');
+        if (!link || report === 'cn') return;
+        const url = new URL(link.href, location.origin);
+        url.searchParams.set('report', report);
+        link.href = url.pathname + url.search;
+      }, true);
+    })();
   </script>
 </body>
 </html>
