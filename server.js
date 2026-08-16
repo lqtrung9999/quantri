@@ -103,7 +103,23 @@ async function larkRows(source, token) {
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const body = await response.json();
   if (!response.ok || body.code) throw new Error(body.msg || `Không thể đọc sheet Lark ${source.label || ''}.`);
-  return (body.data?.valueRange?.values || []).map(row => row.map(value => value == null ? '' : value));
+  return (body.data?.valueRange?.values || []).map(row => normalizeLarkFormulaValues(row.map(value => value == null ? '' : value)));
+}
+function wholeNumber(value) {
+  const parsed = Number(String(value ?? '').replace(/[^0-9-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function normalizeLarkFormulaValues(row) {
+  // Lark Sheets returns the formula text for this calculated column through the
+  // values API. Its source formula is IF(AG>0,AC,AC-W-V), so materialize the
+  // equivalent amount from the underlying numeric cells for Dashboard reports.
+  if (/^=?IF\(/i.test(String(row[37] || '').trim())) {
+    const freightAmount = wholeNumber(row[28]); // AC: Thành tiền cước VC
+    const importTax = wholeNumber(row[21]); // V: Thuế NK
+    const vat = wholeNumber(row[22]); // W: Thuế VAT
+    row[37] = wholeNumber(row[32]) > 0 ? freightAmount : freightAmount - vat - importTax;
+  }
+  return row;
 }
 async function larkSheets(spreadsheetToken, token) {
   const url = `https://open.larksuite.com/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`;
