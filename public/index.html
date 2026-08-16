@@ -23,7 +23,7 @@
     .filters{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:0 0 18px}.filters label{font-weight:650}.filters select{margin-left:8px;padding:7px 10px;border:1px solid #cdb98b;border-radius:6px;background:#fffdf8;color:var(--ink)}
     .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:17px;min-height:112px}.kpi .label{color:var(--muted);font-size:12px;font-weight:650}.kpi .value{font-size:24px;font-weight:750;margin:12px 0 4px;letter-spacing:-.5px}.kpi .note{font-size:12px;color:var(--muted)}
     .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px}.panel h2{font-size:15px;margin:0;color:#392b0e}.panel.chart{height:330px;min-height:330px;overflow:hidden}.panel.chart h2{margin-bottom:16px}.panel.chart canvas{display:block!important;width:100%!important;height:270px!important;max-height:270px}.full{grid-column:1/-1}.table-wrap{overflow:auto;max-height:520px}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}th,td{padding:10px 8px;border-bottom:1px solid var(--line)}td.num,th.num{text-align:right}.detail-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}.detail-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}.detail-search{width:min(390px,100%);border:1px solid #cdb98b;border-radius:7px;background:#fffdf8;color:var(--ink);padding:9px 11px;font:inherit}.sheet-open{display:inline-block;border-radius:7px;padding:9px 12px;background:#514f88;color:#fff;text-decoration:none;font-weight:750;white-space:nowrap}.detail-table{min-width:3200px;font-size:12px}.detail-table th{position:sticky;top:0;z-index:1;background:#514f88;color:#fff;text-transform:none;white-space:pre-line;text-align:center}.detail-table th,.detail-table td{border-right:1px solid #e8dec9;padding:13px 16px}.detail-table th:last-child,.detail-table td:last-child{border-right:0}.detail-table td{white-space:nowrap;text-align:center}.detail-table td:nth-child(6){text-align:left}.detail-wrap{max-height:720px;border:1px solid var(--line);border-radius:8px}.rank{font-weight:750;color:var(--brand)}.positive{color:var(--green)}.negative{color:var(--red)}.empty{padding:60px 10px;text-align:center;color:var(--muted)}.error{background:#fff0eb;border:1px solid #e2afa5;color:#932f22;padding:14px;border-radius:8px;margin:16px 0}.combined{margin:0 0 18px;padding:20px;background:linear-gradient(120deg,#161108,#3d2c08);color:#fff4c5;border:1px solid #88651a;border-radius:12px;box-shadow:0 8px 20px rgba(57,40,7,.2)}.combined-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:15px}.combined h2{font-size:18px;margin:3px 0 0;color:#ffe795}.eyebrow{font-size:11px;font-weight:750;letter-spacing:.08em;opacity:.74}.combined-total{font-size:20px;font-weight:750;white-space:nowrap}.company-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.company-ranking{background:#fffdf8;color:var(--ink);border:1px solid #c6a550;border-radius:8px;padding:14px}.company-ranking h3{font-size:14px;margin:0 0 7px}.company-ranking .table-wrap{max-height:290px}.company-ranking th{color:var(--muted)}.company-ranking td{border-color:#e5d7b7}.alert-note{margin:0 0 18px;padding:13px 15px;background:#fff6d9;border:1px solid #d6b45c;border-radius:8px;color:#5b450d}.alert-status{display:inline-block;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:750;white-space:nowrap}.alert-1{color:#73520a;background:#ffefb7}.alert-2{color:#9c4208;background:#ffe0bd}.alert-3{color:#a0261b;background:#ffd9d4}
-    .hidden{display:none}.sales-can-see-debt .tab.hidden{display:inline-block}
+    .hidden{display:none}.sales-can-see-debt .tab.hidden{display:inline-block}.monthly-total td{background:#fff4d2!important;border-top:2px solid #d8a72c;font-weight:800;color:#4a3508}
     /* Typeface refresh: refined headings, highly legible Vietnamese data. */
     body{font-family:"Be Vietnam Pro",ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:-.01em}button,input,select,textarea{font-family:inherit}h1,h2,h3{font-family:"Playfair Display","Be Vietnam Pro",serif;letter-spacing:-.025em}
     /* Design refresh: professional, light-first operations workspace. */
@@ -118,6 +118,25 @@
         if (scope === 'team') url.searchParams.set('scope', scope);
         link.href = url.pathname + url.search;
       }, true);
+      const addMonthlyTotal = () => document.querySelectorAll('#dashboard table').forEach(table => {
+        const headerCells = [...table.querySelectorAll('thead th')];
+        const saleIndex = headerCells.findIndex(cell => cell.textContent.trim().toLocaleUpperCase('vi-VN') === 'SALE');
+        const totalIndex = headerCells.findIndex(cell => cell.textContent.trim().toLocaleUpperCase('vi-VN').includes('LŨY KẾ'));
+        const body = table.tBodies[0];
+        if (saleIndex !== 1 || totalIndex < 2 || !body || body.querySelector('.monthly-total')) return;
+        const rows = [...body.rows];
+        if (!rows.length) return;
+        const parseMoney = value => Number(String(value || '').replace(/[^0-9-]/g, '')) || 0;
+        const cells = headerCells.map((_, index) => {
+          if (index === 0) return '<td class="rank">Tổng</td>';
+          if (index === 1) return '<td>Tất cả Sale</td>';
+          if (index > 1 && index <= totalIndex) return `<td class="num">${new Intl.NumberFormat('vi-VN').format(rows.reduce((sum, row) => sum + parseMoney(row.cells[index]?.textContent), 0))} ₫</td>`;
+          return '<td></td>';
+        });
+        body.insertAdjacentHTML('afterbegin', `<tr class="monthly-total">${cells.join('')}</tr>`);
+      });
+      new MutationObserver(addMonthlyTotal).observe(document.querySelector('#dashboard'), { childList: true, subtree: true });
+      addMonthlyTotal();
     })();
   </script>
 </body>
