@@ -103,7 +103,12 @@ async function larkRows(source, token) {
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const body = await response.json();
   if (!response.ok || body.code) throw new Error(body.msg || `Không thể đọc sheet Lark ${source.label || ''}.`);
-  return (body.data?.valueRange?.values || []).map(row => row.map(value => value == null ? '' : value));
+  const values = body.data?.valueRange?.values || [];
+  const dateColumns = new Set((values[0] || []).map((header, index) => normalized(header).includes('NGAY') ? index : -1).filter(index => index >= 0));
+  return values.map((row, rowIndex) => row.map((value, index) => {
+    if (value == null) return '';
+    return rowIndex && dateColumns.has(index) ? larkDate(value) : value;
+  }));
 }
 async function larkSheets(spreadsheetToken, token) {
   const url = `https://open.larksuite.com/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`;
