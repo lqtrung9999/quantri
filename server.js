@@ -267,7 +267,13 @@ async function debtData() {
     resolveLarkSource(config.sources.thuyDebt, token),
     resolveLarkSource(config.sources.yenDebt, token)
   ]);
-  const asDashboardDebtRows = rows => {
+  const roomByCustomer = rows => new Map(rows.slice(1).reduce((items, row) => {
+    const customer = normalized(row[7]);
+    const room = String(row[9] || '').trim();
+    if (customer && room) items.push([customer, room]);
+    return items;
+  }, []));
+  const asDashboardDebtRows = (rows, inferredRooms) => {
     const table = tableFromRows(rows, ['PHÒNG', 'CHỦ HÀNG']);
     const room = column(table.cols, 'PHÒNG');
     const customer = column(table.cols, 'CHỦ HÀNG');
@@ -276,10 +282,15 @@ async function debtData() {
     const paid = column(table.cols, 'ĐÃ THANH TOÁN');
     return table.rows
       .filter(row => cell(row, customer))
-      .map(row => [cell(row, room), cell(row, customer), row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0]);
+      .map(row => {
+        const customerName = cell(row, customer);
+        return [cell(row, room) || inferredRooms.get(normalized(customerName)) || '', customerName, row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0];
+      });
   };
-  const [thuyRows, yenRows] = await Promise.all([larkRows(thuySource, token), larkRows(yenSource, token)]);
-  return [asDashboardDebtRows(thuyRows), asDashboardDebtRows(yenRows)];
+  const [thuyRows, yenRows, thuyWarehouse, yenWarehouse] = await Promise.all([
+    larkRows(thuySource, token), larkRows(yenSource, token), larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)
+  ]);
+  return [asDashboardDebtRows(thuyRows, roomByCustomer(thuyWarehouse)), asDashboardDebtRows(yenRows, roomByCustomer(yenWarehouse))];
 }
 async function dashboardData(user) {
   const [[debtThuy, debtYen], [warehouseThuy, warehouseYen]] = await Promise.all([
