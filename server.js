@@ -97,9 +97,9 @@ async function larkToken(config) {
   };
   return larkTokenCache.value;
 }
-async function larkRows(source, token) {
+async function larkRows(source, token, renderOption = 'UnformattedValue') {
   const range = `${source.sheetId}!A1:AS${source.maxRows || 10000}`;
-  const url = `https://open.larksuite.com/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(source.spreadsheetToken)}/values/${encodeURIComponent(range)}?valueRenderOption=UnformattedValue`;
+  const url = `https://open.larksuite.com/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(source.spreadsheetToken)}/values/${encodeURIComponent(range)}?valueRenderOption=${encodeURIComponent(renderOption)}`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const body = await response.json();
   if (!response.ok || body.code) throw new Error(body.msg || `Không thể đọc sheet Lark ${source.label || ''}.`);
@@ -107,7 +107,7 @@ async function larkRows(source, token) {
   const dateColumns = new Set((values[0] || []).map((header, index) => normalized(header).includes('NGAY') ? index : -1).filter(index => index >= 0));
   return values.map((row, rowIndex) => row.map((value, index) => {
     if (value == null) return '';
-    return rowIndex && dateColumns.has(index) ? larkDate(value) : value;
+    return renderOption === 'UnformattedValue' && rowIndex && dateColumns.has(index) ? larkDate(value) : value;
   }));
 }
 async function larkSheets(spreadsheetToken, token) {
@@ -273,24 +273,29 @@ async function debtData() {
     if (customer && room) items.push([customer, room]);
     return items;
   }, []));
-  const asDashboardDebtRows = (rows, inferredRooms) => {
+  const asDashboardDebtRows = (rows, formulaRows, inferredRooms) => {
     const table = tableFromRows(rows, ['PHÒNG', 'CHỦ HÀNG']);
+    const headerIndex = rows.findIndex(row => ['PHÒNG', 'CHỦ HÀNG'].every(name => row.some(value => normalized(value) === normalized(name))));
     const room = column(table.cols, 'PHÒNG');
     const customer = column(table.cols, 'CHỦ HÀNG');
     const opening = column(table.cols, 'TỒN ĐẦU NĂM');
     const debt = column(table.cols, 'CÔNG NỢ 2026', 'CÔNG NỢ 2025');
     const paid = column(table.cols, 'ĐÃ THANH TOÁN');
+    const balance = column(table.cols, 'CÔNG NỢ TỒN', 'CÔNG NỢ');
+    const summaryFormula = String((formulaRows[headerIndex + 1] || [])[balance] || '');
+    const endRow = Number((summaryFormula.match(/:[A-Z]+(\d+)\)/i) || [])[1]) || Infinity;
     return table.rows
+      .filter((_, index) => headerIndex + index + 2 <= endRow)
       .filter(row => cell(row, customer))
       .map(row => {
         const customerName = cell(row, customer);
         return [cell(row, room) || inferredRooms.get(normalized(customerName)) || '', customerName, row[opening] ?? 0, row[debt] ?? 0, row[paid] ?? 0];
       });
   };
-  const [thuyRows, yenRows, thuyWarehouse, yenWarehouse] = await Promise.all([
-    larkRows(thuySource, token), larkRows(yenSource, token), larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)
+  const [thuyRows, yenRows, thuyFormulaRows, yenFormulaRows, thuyWarehouse, yenWarehouse] = await Promise.all([
+    larkRows(thuySource, token), larkRows(yenSource, token), larkRows(thuySource, token, 'Formula'), larkRows(yenSource, token, 'Formula'), larkRows(config.sources.thuy, token), larkRows(config.sources.yen, token)
   ]);
-  return [asDashboardDebtRows(thuyRows, roomByCustomer(thuyWarehouse)), asDashboardDebtRows(yenRows, roomByCustomer(yenWarehouse))];
+  return [asDashboardDebtRows(thuyRows, thuyFormulaRows, roomByCustomer(thuyWarehouse)), asDashboardDebtRows(yenRows, yenFormulaRows, roomByCustomer(yenWarehouse))];
 }
 async function dashboardData(user) {
   const [[debtThuy, debtYen], [warehouseThuy, warehouseYen]] = await Promise.all([
