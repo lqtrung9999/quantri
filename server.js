@@ -326,16 +326,21 @@ async function dashboardData(user, report = 'cn', scope = 'personal') {
     warehouseData(report)
   ]);
   if (user.role === 'sale') {
+    const scopedData = (debts, warehouse, filter) => {
+      const selectedWarehouse = filter(warehouse);
+      const customers = new Set(selectedWarehouse.map(row => normalized(row[7])).filter(Boolean));
+      return { debt: debts.filter(row => customers.has(normalized(row[1]))), warehouse: selectedWarehouse };
+    };
     const team = leaderTeam(user);
     if (scope === 'team' && team) {
       const filterTeam = rows => rows.filter(row => String(row[8] || '').trim().toLocaleUpperCase('vi-VN').startsWith(team));
-      return { thuy: { debt: [], warehouse: filterTeam(warehouseThuy) }, yen: { debt: [], warehouse: filterTeam(warehouseYen) } };
+      return { thuy: scopedData(debtThuy, warehouseThuy, filterTeam), yen: scopedData(debtYen, warehouseYen, filterTeam) };
     }
     const allowedSales = [user.sale, ...(user.saleAliases || [])]
       .map(value => String(value || '').trim().toLocaleLowerCase('vi-VN'))
       .filter(Boolean);
     const filterSale = rows => rows.filter(row => allowedSales.includes(String(row[8] || '').trim().toLocaleLowerCase('vi-VN')));
-    return { thuy: { debt: [], warehouse: filterSale(warehouseThuy) }, yen: { debt: [], warehouse: filterSale(warehouseYen) } };
+    return { thuy: scopedData(debtThuy, warehouseThuy, filterSale), yen: scopedData(debtYen, warehouseYen, filterSale) };
   }
   return { thuy: { debt: debtThuy, warehouse: warehouseThuy }, yen: { debt: debtYen, warehouse: warehouseYen } };
 }
