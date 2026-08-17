@@ -143,9 +143,9 @@ function column(cols, ...names) {
   return -1;
 }
 function warehouseMetricColumn(table, ...names) {
-  const direct = column(table.cols, ...names);
-  if (direct >= 0) return direct;
   const wanted = names.map(normalized);
+  const direct = table.cols.findIndex(value => wanted.includes(normalized(value)));
+  if (direct >= 0) return direct;
   for (const headerRow of table.rows.slice(0, 3)) {
     const index = headerRow.findIndex(value => wanted.includes(normalized(value)));
     if (index >= 0) return index;
