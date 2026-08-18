@@ -52,8 +52,9 @@
     }).join('') || `<tr><td colspan="10" style="text-align:center;padding:42px;color:#728099">Chưa có khách hàng tiềm năng. Sale có thể bắt đầu bằng nút “Thêm khách hàng”.</td></tr>`;
   }
   function renderTabs() {
-    const tabs = [['all', 'Tất cả'], ['status:Đã gửi lời mời kết bạn', 'Đã gửi lời mời kết bạn'], ['status:Đã tư vấn dịch vụ', 'Đã tư vấn dịch vụ'], ['category:Khách tiềm năng', 'Khách tiềm năng'], ['category:Khách cực kỳ tiềm năng', 'Khách cực kỳ tiềm năng']];
-    $('.tabs').innerHTML = tabs.map(([value, label]) => `<span data-tab="${esc(value)}" class="${value === activeTab ? 'active' : ''}">${label}</span>`).join('');
+    const tabs = [['all', 'Tất cả'], ...STATUS.slice(1).map(status => [`status:${status}`, status])];
+    const count = value => value === 'all' ? leads.length : leads.filter(lead => lead.status === value.slice(7)).length;
+    $('.tabs').innerHTML = tabs.map(([value, label]) => `<span data-tab="${esc(value)}" class="${value === activeTab ? 'active' : ''}">${esc(label)} ${count(value)}</span>`).join('');
   }
   function renderFilters() {
     const selects = [...document.querySelectorAll('.searchbar select')];
