@@ -64,10 +64,10 @@
     selects[1].innerHTML = `<option>Mọi trạng thái Zalo</option>${STATUS.slice(1).map(value => `<option ${value === status ? 'selected' : ''}>${esc(value)}</option>`).join('')}`;
   }
   function renderMetrics() {
-    const today = localIso(new Date()), count = predicate => leads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
-    const values = [count(lead => lead.foundAt === today), count(lead => lead.status === 'Đã gửi lời mời kết bạn'), count(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)), count(lead => lead.status === 'Đã tư vấn dịch vụ')];
-    const descriptions = ['Khách mới tạo hôm nay', 'Đã gửi lời mời kết bạn', 'Theo phân loại khách hàng', 'Đã tư vấn dịch vụ'];
-    const labels = ['DATA MỚI HÔM NAY', 'ĐÃ GỬI KẾT BẠN', 'KHÁCH TIỀM NĂNG', 'ĐÃ TƯ VẤN DỊCH VỤ'];
+    const count = predicate => leads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
+    const values = [leads.length, count(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)), count(lead => lead.category === 'Khách không tiềm năng'), count(lead => lead.closed === true)];
+    const descriptions = ['Tất cả khách hàng đang quản lý', 'Gồm tiềm năng và cực kỳ tiềm năng', 'Theo phân loại khách hàng', 'Khách đã được xác nhận chốt'];
+    const labels = ['TỔNG DATA', 'KHÁCH HÀNG TIỀM NĂNG', 'KHÁCH HÀNG KHÔNG TIỀM NĂNG', 'ĐÃ CHỐT'];
     cards.forEach((card, index) => { card.querySelector('.label').textContent = labels[index]; card.querySelector('b').textContent = values[index]; card.querySelector('b + span').textContent = descriptions[index]; card.querySelector('b + span').className = values[index] ? 'green' : ''; });
   }
   function render() { renderFilters(); renderTabs(); renderRows(); renderMetrics(); }
