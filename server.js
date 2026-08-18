@@ -489,7 +489,7 @@ http.createServer(async (req, res) => {
         if (!name || name.length > 150) return send(res, 400, { error: 'Vui lòng nhập tên khách hàng.' });
         const item = {
           id: crypto.randomUUID(), name, phone: String(record?.phone || '').trim().slice(0, 50), source: String(record?.source || 'Khác').trim().slice(0, 50),
-          link: String(record?.link || '').trim().slice(0, 1000), product: String(record?.product || '').trim().slice(0, 200), status: '', category: '',
+          link: String(record?.link || '').trim().slice(0, 1000), product: String(record?.product || '').trim().slice(0, 200), status: '', category: '', result: '',
           sale: user.sale || user.name, foundAt: crmNewToday(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), notes: []
         };
         const initialNote = String(record?.note || '').trim().slice(0, 4000);
@@ -501,8 +501,9 @@ http.createServer(async (req, res) => {
       if (action === 'update') {
         const statuses = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ'];
         const categories = ['', 'Khách cực kỳ tiềm năng', 'Khách tiềm năng', 'Khách không tiềm năng'];
-        if (!statuses.includes(record?.status) || !categories.includes(record?.category)) return send(res, 400, { error: 'Trạng thái khách hàng không hợp lệ.' });
-        item.status = record.status; item.category = record.category; item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows); return send(res, 200, { record: item });
+        const results = ['', 'Đã Chốt', 'Chưa Chốt Được'];
+        if (!statuses.includes(record?.status) || !categories.includes(record?.category) || !results.includes(record?.result)) return send(res, 400, { error: 'Trạng thái khách hàng không hợp lệ.' });
+        item.status = record.status; item.category = record.category; item.result = record.result; item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows); return send(res, 200, { record: item });
       }
       if (action === 'addNote') {
         const note = String(text || '').trim().slice(0, 4000);
