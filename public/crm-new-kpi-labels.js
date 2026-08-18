@@ -1,0 +1,1 @@
+(()=>{const labels=['DATA MỚI HÔM NAY','ĐÃ GỬI KẾT BẠN','KHÁCH TIỀM NĂNG','KHÁCH CHỐT'];document.querySelectorAll('.metric .label').forEach((label,index)=>label.textContent=labels[index]||label.textContent)})();
