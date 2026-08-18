@@ -420,7 +420,8 @@ http.createServer(async (req, res) => {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     try {
       const data = await crmRequest('GET');
-      const rows = user.role === 'sale' ? data.rows.filter(row => sameSale(row.sale, user.sale)) : data.rows;
+      const team = leaderTeam(user);
+      const rows = user.role === 'sale' ? data.rows.filter(row => sameSale(row.sale, user.sale) || (team && String(row.sale || '').trim().toLocaleUpperCase('vi-VN').startsWith(team))) : data.rows;
       return send(res, 200, { rows });
     } catch (error) { return send(res, 502, { error: error.message || 'Không thể tải CRM.' }); }
   }
