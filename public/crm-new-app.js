@@ -39,7 +39,8 @@
     const [sourceFilter, statusFilter] = [...document.querySelectorAll('.searchbar select')].map(element => element.value);
     return leads.filter(lead => {
       const isNonPotential = lead.category === 'Khách không tiềm năng';
-      const quick = activeTab === 'all' ? !isNonPotential : activeTab === 'nonpotential' ? isNonPotential : !isNonPotential && lead.status === activeTab.slice(7);
+      const isClosed = lead.result === 'Đã Chốt';
+      const quick = activeTab === 'all' ? !isNonPotential && !isClosed : activeTab === 'nonpotential' ? isNonPotential && !isClosed : activeTab === 'closed' ? isClosed : !isNonPotential && !isClosed && lead.status === activeTab.slice(7);
       const text = `${lead.name} ${lead.phone} ${lead.product} ${lead.sale}`.toLocaleLowerCase('vi-VN');
       return quick && (!search || text.includes(search)) && (sourceFilter === 'Tất cả nguồn' || lead.source === sourceFilter) && (statusFilter === 'Mọi trạng thái Zalo' || lead.status === statusFilter);
     });
@@ -55,7 +56,7 @@
   }
   function renderTabs() {
     const tabs = [['all', 'Tất cả'], ...STATUS.slice(1).map(status => [`status:${status}`, status])];
-    const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng');
+    const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
     const count = value => value === 'all' ? workingLeads.length : workingLeads.filter(lead => lead.status === value.slice(7)).length;
     $('.tabs').innerHTML = tabs.map(([value, label]) => `<span data-tab="${esc(value)}" class="${value === activeTab ? 'active' : ''}">${esc(label)} ${count(value)}</span>`).join('');
   }
@@ -67,14 +68,18 @@
     selects[1].innerHTML = `<option>Mọi trạng thái Zalo</option>${STATUS.slice(1).map(value => `<option ${value === status ? 'selected' : ''}>${esc(value)}</option>`).join('')}`;
   }
   function renderMetrics() {
+    const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
     const count = predicate => leads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
-    const values = [leads.length, count(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)), count(lead => lead.category === 'Khách không tiềm năng'), count(lead => lead.result === 'Đã Chốt')];
+    const values = [workingLeads.length, workingLeads.filter(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)).length, count(lead => lead.category === 'Khách không tiềm năng' && lead.result !== 'Đã Chốt'), count(lead => lead.result === 'Đã Chốt')];
     const descriptions = ['Tất cả khách hàng đang quản lý', 'Gồm tiềm năng và cực kỳ tiềm năng', 'Theo phân loại khách hàng', 'Khách đã được xác nhận chốt'];
     const labels = ['TỔNG DATA', 'KHÁCH HÀNG TIỀM NĂNG', 'KHÁCH HÀNG KHÔNG TIỀM NĂNG', 'ĐÃ CHỐT'];
     cards.forEach((card, index) => { card.querySelector('.label').textContent = labels[index]; card.querySelector('b').textContent = values[index]; card.querySelector('b + span').textContent = descriptions[index]; card.querySelector('b + span').className = values[index] ? 'green' : ''; });
     cards[2].classList.add('archive-card');
     cards[2].classList.toggle('active', activeTab === 'nonpotential');
     cards[2].onclick = () => { activeTab = activeTab === 'nonpotential' ? 'all' : 'nonpotential'; render(); };
+    cards[3].classList.add('archive-card');
+    cards[3].classList.toggle('active', activeTab === 'closed');
+    cards[3].onclick = () => { activeTab = activeTab === 'closed' ? 'all' : 'closed'; render(); };
   }
   function render() { renderFilters(); renderTabs(); renderRows(); renderMetrics(); }
   async function reload() { const data = await api(); user = data.user; leads = data.rows || []; const name = user.name || user.sale || 'Sales'; $('#user').textContent = `${name} · ${user.role === 'sale' ? 'Sales' : user.role === 'accountant' ? 'Kế toán' : 'Admin'}`; $('#avatar').textContent = initials(name); document.querySelectorAll('thead th')[7].textContent = 'PHÂN LOẠI KH'; document.querySelectorAll('thead th')[9].textContent = 'KẾT QUẢ'; document.querySelectorAll('thead th')[10].textContent = 'SALE'; $('.add').hidden = user.role !== 'sale'; render(); }
