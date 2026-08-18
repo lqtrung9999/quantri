@@ -1,5 +1,5 @@
 (() => {
-  const STATUS = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ', 'Khách đang xem xét', 'Khách không chốt', 'Khách chốt'];
+  const STATUS = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ'];
   const CATEGORY = ['', 'Khách cực kỳ tiềm năng', 'Khách tiềm năng', 'Khách không tiềm năng'];
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -52,7 +52,7 @@
     }).join('') || `<tr><td colspan="10" style="text-align:center;padding:42px;color:#728099">Chưa có khách hàng tiềm năng. Sale có thể bắt đầu bằng nút “Thêm khách hàng”.</td></tr>`;
   }
   function renderTabs() {
-    const tabs = [['all', 'Tất cả'], ['status:Đã gửi lời mời kết bạn', 'Đã gửi lời mời kết bạn'], ['status:Đã tư vấn dịch vụ', 'Đã tư vấn dịch vụ'], ['status:Khách đang xem xét', 'Khách đang xem xét'], ['category:Khách tiềm năng', 'Khách tiềm năng'], ['category:Khách cực kỳ tiềm năng', 'Khách cực kỳ tiềm năng']];
+    const tabs = [['all', 'Tất cả'], ['status:Đã gửi lời mời kết bạn', 'Đã gửi lời mời kết bạn'], ['status:Đã tư vấn dịch vụ', 'Đã tư vấn dịch vụ'], ['category:Khách tiềm năng', 'Khách tiềm năng'], ['category:Khách cực kỳ tiềm năng', 'Khách cực kỳ tiềm năng']];
     $('.tabs').innerHTML = tabs.map(([value, label]) => `<span data-tab="${esc(value)}" class="${value === activeTab ? 'active' : ''}">${label}</span>`).join('');
   }
   function renderFilters() {
@@ -64,9 +64,9 @@
   }
   function renderMetrics() {
     const today = localIso(new Date()), count = predicate => leads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
-    const values = [count(lead => lead.foundAt === today), count(lead => lead.status === 'Đã gửi lời mời kết bạn'), count(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)), count(lead => lead.status === 'Khách chốt')];
-    const descriptions = ['Khách mới tạo hôm nay', 'Đã gửi lời mời kết bạn', 'Theo phân loại khách hàng', 'Khách đã chốt dịch vụ'];
-    const labels = ['DATA MỚI HÔM NAY', 'ĐÃ GỬI KẾT BẠN', 'KHÁCH TIỀM NĂNG', 'KHÁCH CHỐT'];
+    const values = [count(lead => lead.foundAt === today), count(lead => lead.status === 'Đã gửi lời mời kết bạn'), count(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)), count(lead => lead.status === 'Đã tư vấn dịch vụ')];
+    const descriptions = ['Khách mới tạo hôm nay', 'Đã gửi lời mời kết bạn', 'Theo phân loại khách hàng', 'Đã tư vấn dịch vụ'];
+    const labels = ['DATA MỚI HÔM NAY', 'ĐÃ GỬI KẾT BẠN', 'KHÁCH TIỀM NĂNG', 'ĐÃ TƯ VẤN DỊCH VỤ'];
     cards.forEach((card, index) => { card.querySelector('.label').textContent = labels[index]; card.querySelector('b').textContent = values[index]; card.querySelector('b + span').textContent = descriptions[index]; card.querySelector('b + span').className = values[index] ? 'green' : ''; });
   }
   function render() { renderFilters(); renderTabs(); renderRows(); renderMetrics(); }
@@ -74,7 +74,7 @@
   async function updateLead(id, patch) { const result = await api('POST', { action: 'update', record: { id, status: patch.status, category: patch.category } }); const index = leads.findIndex(lead => lead.id === id); if (index >= 0) leads[index] = result.record; render(); }
   function openNotes(lead) { currentNote = lead; $('#note-title').textContent = `Lịch sử tương tác · ${lead.name}`; const notes = Array.isArray(lead.notes) ? lead.notes : []; $('#note-history').innerHTML = notes.length ? notes.map(note => `<div class="history-item"><div class="history-meta"><span>${esc(note.author || '')}</span><span>${new Date(note.at).toLocaleString('vi-VN')}</span></div><p>${esc(note.text)}</p></div>`).join('') : '<p class="muted">Chưa có ghi chú tương tác.</p>'; $('#note-text').value = ''; const editable = isOwner(lead); $('#note-entry').hidden = !editable; $('#save-note').hidden = !editable; noteModal.classList.add('open'); }
   function reportRows() { const period = $('#report-period').value, selected = period === 'month' ? $('#report-month').value : $('#report-day').value; return leads.filter(lead => period === 'month' ? lead.foundAt?.startsWith(selected) : lead.foundAt === selected); }
-  function renderReport() { const rows = reportRows(), status = value => rows.filter(lead => lead.status === value).length, category = value => rows.filter(lead => lead.category === value).length, card = (label, value) => `<article class="report-card"><span>${label}</span><b>${value}</b></article>`; $('#report-content').innerHTML = `<div class="report-section">Tiến độ data trong kỳ</div><div class="report-grid">${card('DATA MỚI', rows.length)}${card('ĐÃ GỬI KẾT BẠN', status('Đã gửi lời mời kết bạn'))}${card('ĐÃ KẾT BẠN', status('Đã kết bạn'))}${card('GỬI TIN CHƯA PHẢN HỒI', status('Đã gửi tin nhắn khách chưa phản hồi'))}${card('KHÁCH ĐÃ TƯƠNG TÁC', status('Khách đã tương tác'))}${card('ĐÃ TƯ VẤN DỊCH VỤ', status('Đã tư vấn dịch vụ'))}${card('KHÁCH ĐANG XEM XÉT', status('Khách đang xem xét'))}${card('KHÁCH CHỐT', status('Khách chốt'))}</div><div class="report-section">Phân loại khách hàng</div><div class="report-grid">${card('CỰC KỲ TIỀM NĂNG', category('Khách cực kỳ tiềm năng'))}${card('KHÁCH TIỀM NĂNG', category('Khách tiềm năng'))}${card('KHÔNG TIỀM NĂNG', category('Khách không tiềm năng'))}${card('KHÔNG CHỐT', status('Khách không chốt'))}</div>`; }
+  function renderReport() { const rows = reportRows(), status = value => rows.filter(lead => lead.status === value).length, category = value => rows.filter(lead => lead.category === value).length, card = (label, value) => `<article class="report-card"><span>${label}</span><b>${value}</b></article>`; $('#report-content').innerHTML = `<div class="report-section">Tiến độ data trong kỳ</div><div class="report-grid">${card('DATA MỚI', rows.length)}${card('ĐÃ GỬI KẾT BẠN', status('Đã gửi lời mời kết bạn'))}${card('ĐÃ KẾT BẠN', status('Đã kết bạn'))}${card('GỬI TIN CHƯA PHẢN HỒI', status('Đã gửi tin nhắn khách chưa phản hồi'))}${card('KHÁCH ĐÃ TƯƠNG TÁC', status('Khách đã tương tác'))}${card('ĐÃ TƯ VẤN DỊCH VỤ', status('Đã tư vấn dịch vụ'))}</div><div class="report-section">Phân loại khách hàng</div><div class="report-grid">${card('CỰC KỲ TIỀM NĂNG', category('Khách cực kỳ tiềm năng'))}${card('KHÁCH TIỀM NĂNG', category('Khách tiềm năng'))}${card('KHÔNG TIỀM NĂNG', category('Khách không tiềm năng'))}</div>`; }
 
   $('.searchbar input').addEventListener('input', renderRows);
   document.querySelectorAll('.searchbar select').forEach(element => element.addEventListener('change', renderRows));

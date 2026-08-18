@@ -499,7 +499,7 @@ http.createServer(async (req, res) => {
       const item = rows.find(row => row.id === id || row.id === record?.id);
       if (!item || !sameSale(item.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể cập nhật khách hàng của mình.' });
       if (action === 'update') {
-        const statuses = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ', 'Khách đang xem xét', 'Khách không chốt', 'Khách chốt'];
+        const statuses = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ'];
         const categories = ['', 'Khách cực kỳ tiềm năng', 'Khách tiềm năng', 'Khách không tiềm năng'];
         if (!statuses.includes(record?.status) || !categories.includes(record?.category)) return send(res, 400, { error: 'Trạng thái khách hàng không hợp lệ.' });
         item.status = record.status; item.category = record.category; item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows); return send(res, 200, { record: item });
