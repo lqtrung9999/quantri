@@ -107,7 +107,7 @@ async function larkRows(source, token, renderOption = 'UnformattedValue') {
   const dateColumns = new Set((values[0] || []).map((header, index) => normalized(header).includes('NGAY') ? index : -1).filter(index => index >= 0));
   return values.map((row, rowIndex) => row.map((value, index) => {
     if (value == null) return '';
-    return renderOption === 'UnformattedValue' && rowIndex && dateColumns.has(index) ? larkDate(value) : value;
+    return renderOption === 'UnformattedValue' && rowIndex && dateColumns.has(index) ? operationalLarkDate(value) : value;
   }));
 }
 async function larkSheets(spreadsheetToken, token) {
@@ -169,6 +169,19 @@ function larkDate(value, monthFirstInput = false) {
   }
   const text = String(value).trim();
   return normalizeLarkDateText(text, monthFirstInput);
+}
+function operationalLarkDate(value) {
+  const rendered = larkDate(value);
+  const matched = rendered.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!matched) return rendered;
+  const day = Number(matched[1]), month = Number(matched[2]), year = Number(matched[3]);
+  if (day > 12 || month > 12) return rendered;
+  const current = new Date();
+  const cutoff = Date.UTC(current.getFullYear(), current.getMonth(), current.getDate() + 1);
+  const normal = Date.UTC(year, month - 1, day);
+  const swapped = Date.UTC(year, day - 1, month);
+  if (normal > cutoff && swapped <= cutoff) return `${month}/${day}/${year}`;
+  return rendered;
 }
 function vietnameseDateStamp(value) {
   const matched = String(value || '').trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
@@ -274,10 +287,10 @@ function canonicalCkWarehouseRows(rows) {
   Object.assign(headers, { 0: 'NGÀY/ THÁNG', 3: 'MÃ HÀNG', 4: 'SỐ KIỆN', 5: 'TÊN HÀNG', 6: 'MÃ KH', 7: 'CHỦ HÀNG', 8: 'SALE', 9: 'Phòng Sale', 10: 'Kế toán', 11: 'KG', 12: 'M3', 34: 'TỔNG KH THANH TOÁN', 35: 'TRẠNG THÁI', 37: 'DOANH SỐ THỰC', 39: 'NGÀY BỐC', 40: 'BIỂN SỐ XE/ CỬA KHẨU', 41: 'SỐ KIỆN BỐC', 42: 'TỒN KHO', 44: 'PHÍ VẬN CHUYỂN/M3' });
   return [headers, ...rows.slice(2).filter(row => row[1]).map(row => {
     const value = Array(45).fill('');
-    value[0] = larkDate(row[0]); value[3] = row[1]; value[4] = row[2]; value[5] = row[3];
+    value[0] = operationalLarkDate(row[0]); value[3] = row[1]; value[4] = row[2]; value[5] = row[3];
     value[6] = row[11]; value[7] = row[12]; value[8] = row[13]; value[9] = row[14]; value[10] = row[15];
     value[11] = row[4]; value[12] = row[5]; value[34] = row[19]; value[35] = row[18]; value[37] = row[20];
-    value[39] = larkDate(row[21]); value[40] = row[22]; value[41] = row[23]; value[42] = row[24]; value[44] = row[26];
+    value[39] = operationalLarkDate(row[21]); value[40] = row[22]; value[41] = row[23]; value[42] = row[24]; value[44] = row[26];
     return value;
   })];
 }
