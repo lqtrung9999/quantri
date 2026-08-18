@@ -38,7 +38,8 @@
     const search = $('.searchbar input').value.trim().toLocaleLowerCase('vi-VN');
     const [sourceFilter, statusFilter] = [...document.querySelectorAll('.searchbar select')].map(element => element.value);
     return leads.filter(lead => {
-      const quick = activeTab === 'all' ? lead.category !== 'Khách không tiềm năng' : activeTab === 'nonpotential' ? lead.category === 'Khách không tiềm năng' : lead.status === activeTab.slice(7);
+      const isNonPotential = lead.category === 'Khách không tiềm năng';
+      const quick = activeTab === 'all' ? !isNonPotential : activeTab === 'nonpotential' ? isNonPotential : !isNonPotential && lead.status === activeTab.slice(7);
       const text = `${lead.name} ${lead.phone} ${lead.product} ${lead.sale}`.toLocaleLowerCase('vi-VN');
       return quick && (!search || text.includes(search)) && (sourceFilter === 'Tất cả nguồn' || lead.source === sourceFilter) && (statusFilter === 'Mọi trạng thái Zalo' || lead.status === statusFilter);
     });
@@ -54,7 +55,8 @@
   }
   function renderTabs() {
     const tabs = [['all', 'Tất cả'], ...STATUS.slice(1).map(status => [`status:${status}`, status])];
-    const count = value => value === 'all' ? leads.length : leads.filter(lead => lead.status === value.slice(7)).length;
+    const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng');
+    const count = value => value === 'all' ? workingLeads.length : workingLeads.filter(lead => lead.status === value.slice(7)).length;
     $('.tabs').innerHTML = tabs.map(([value, label]) => `<span data-tab="${esc(value)}" class="${value === activeTab ? 'active' : ''}">${esc(label)} ${count(value)}</span>`).join('');
   }
   function renderFilters() {
