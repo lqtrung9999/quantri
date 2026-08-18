@@ -6,6 +6,7 @@ const path = require('path');
 const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
 const crmConfigFile = path.join(__dirname, 'crm-config.json');
+const crmNewDataFile = path.join(__dirname, 'crm-new-data.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -58,6 +59,27 @@ function saveUsers(list) {
   const temporary = `${usersFile}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, usersFile);
+}
+function crmNewRows() {
+  if (!fs.existsSync(crmNewDataFile)) return [];
+  try {
+    const rows = JSON.parse(fs.readFileSync(crmNewDataFile, 'utf8'));
+    return Array.isArray(rows) ? rows : [];
+  } catch { throw new Error('Dữ liệu CRM Mới không hợp lệ.'); }
+}
+function saveCrmNewRows(rows) {
+  const temporary = `${crmNewDataFile}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, crmNewDataFile);
+}
+function crmNewToday() {
+  const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts().filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+function crmNewVisibleRows(user, rows) {
+  if (user.role !== 'sale') return rows;
+  const team = leaderTeam(user);
+  return rows.filter(row => sameSale(row.sale, user.sale) || (team && String(row.sale || '').trim().toLocaleUpperCase('vi-VN').startsWith(team)));
 }
 function hash(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
 function verifyPassword(password, stored) {
@@ -449,10 +471,52 @@ http.createServer(async (req, res) => {
       return send(res, 200, saved);
     } catch (error) { return send(res, 502, { error: error.message || 'Không thể lưu CRM.' }); }
   }
+  if (pathname === '/api/crm-new/leads' && req.method === 'GET') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    try {
+      const rows = crmNewVisibleRows(user, crmNewRows()).sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+      return send(res, 200, { rows, user: profile(user) });
+    } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải CRM Mới.' }); }
+  }
+  if (pathname === '/api/crm-new/leads' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    if (user.role !== 'sale') return send(res, 403, { error: 'Chỉ tài khoản Sale có thể cập nhật CRM.' });
+    try {
+      const { action, record, id, text } = await readJson(req);
+      const rows = crmNewRows();
+      if (action === 'create') {
+        const name = String(record?.name || '').trim();
+        if (!name || name.length > 150) return send(res, 400, { error: 'Vui lòng nhập tên khách hàng.' });
+        const item = {
+          id: crypto.randomUUID(), name, phone: String(record?.phone || '').trim().slice(0, 50), source: String(record?.source || 'Khác').trim().slice(0, 50),
+          link: String(record?.link || '').trim().slice(0, 1000), product: String(record?.product || '').trim().slice(0, 200), status: '', category: '',
+          sale: user.sale || user.name, foundAt: crmNewToday(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), notes: []
+        };
+        const initialNote = String(record?.note || '').trim().slice(0, 4000);
+        if (initialNote) item.notes.push({ text: initialNote, author: user.name, at: new Date().toISOString() });
+        rows.push(item); saveCrmNewRows(rows); return send(res, 201, { record: item });
+      }
+      const item = rows.find(row => row.id === id || row.id === record?.id);
+      if (!item || !sameSale(item.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể cập nhật khách hàng của mình.' });
+      if (action === 'update') {
+        const statuses = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ', 'Khách đang xem xét', 'Khách không chốt', 'Khách chốt'];
+        const categories = ['', 'Khách cực kỳ tiềm năng', 'Khách tiềm năng', 'Khách không tiềm năng'];
+        if (!statuses.includes(record?.status) || !categories.includes(record?.category)) return send(res, 400, { error: 'Trạng thái khách hàng không hợp lệ.' });
+        item.status = record.status; item.category = record.category; item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows); return send(res, 200, { record: item });
+      }
+      if (action === 'addNote') {
+        const note = String(text || '').trim().slice(0, 4000);
+        if (!note) return send(res, 400, { error: 'Vui lòng nhập nội dung ghi chú.' });
+        item.notes = Array.isArray(item.notes) ? item.notes : [];
+        item.notes.push({ text: note, author: user.name, at: new Date().toISOString() }); item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows); return send(res, 200, { record: item });
+      }
+      return send(res, 400, { error: 'Thao tác CRM Mới không hợp lệ.' });
+    } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu CRM Mới.' }); }
+  }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
-    return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', '<script src="/crm-new-enhancements.js"></script><script src="/crm-new-interactions.js"></script><script src="/crm-new-modal.js"></script><script src="/crm-new-notes.js"></script><script src="/crm-new-quick-filters.js"></script><script src="/crm-new-statuses.js"></script><script src="/crm-new-quick-status-tabs.js"></script><script src="/crm-new-customer-category.js"></script><script src="/crm-new-sale-column.js"></script><script src="/crm-new-kpi-labels.js"></script><script src="/crm-new-notes-fix.js"></script><script src="/crm-new-dashboard-link.js"></script><script src="/crm-new-kpi-data.js"></script><script src="/crm-new-daily-report.js"></script></body>'), 'text/html; charset=utf-8'));
+    return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', '<script src="/crm-new-dashboard-link.js"></script><script src="/crm-new-app.js"></script></body>'), 'text/html; charset=utf-8'));
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
