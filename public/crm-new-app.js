@@ -105,10 +105,12 @@
   noteModal.addEventListener('click', event => { if (event.target === noteModal) noteModal.classList.remove('open'); });
   $('#save-note').onclick = async () => { const text = $('#note-text').value.trim(); if (!text || !currentNote) return; try { await api('POST', { action: 'addNote', id: currentNote.id, text }); await reload(); openNotes(leads.find(lead => lead.id === currentNote.id)); } catch (error) { alert(error.message); } };
   const reportButton = document.createElement('button'); reportButton.className = 'crm-report'; reportButton.type = 'button'; reportButton.textContent = '▥ Báo cáo'; $('.searchbar').insertBefore(reportButton, $('.add'));
+  const cleanupButton = document.createElement('button'); cleanupButton.className = 'crm-report'; cleanupButton.type = 'button'; cleanupButton.textContent = 'Xoá data test A TRUNG'; cleanupButton.hidden = true; $('.searchbar').insertBefore(cleanupButton, $('.add'));
+  cleanupButton.onclick = async () => { if (!confirm('Xoá toàn bộ data CRM Mới do Sale A TRUNG tạo? Thao tác này không thể hoàn tác.')) return; try { const result = await api('POST', { action: 'deleteBySale', record: { sale: 'A TRUNG' } }); alert(`Đã xoá ${result.deleted} data test của A TRUNG.`); await reload(); } catch (error) { alert(error.message); } };
   reportButton.onclick = () => { const now = new Date(); $('#report-day').value = localIso(now); $('#report-month').value = localIso(now).slice(0, 7); renderReport(); reportModal.classList.add('open'); };
   $('#report-period').onchange = () => { const monthly = $('#report-period').value === 'month'; $('#report-day-wrap').hidden = monthly; $('#report-month-wrap').hidden = !monthly; renderReport(); };
   $('#report-day').onchange = $('#report-month').onchange = renderReport;
   reportModal.querySelector('.close').onclick = reportModal.querySelector('.cancel').onclick = () => reportModal.classList.remove('open');
   reportModal.addEventListener('click', event => { if (event.target === reportModal) reportModal.classList.remove('open'); });
-  reload().catch(error => { $('#rows').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:42px;color:#d64f42">${esc(error.message)}</td></tr>`; });
+  reload().then(() => { cleanupButton.hidden = user.role !== 'admin'; }).catch(error => { $('#rows').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:42px;color:#d64f42">${esc(error.message)}</td></tr>`; });
 })();
