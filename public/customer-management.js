@@ -24,7 +24,26 @@
     const noteLabel = document.querySelector('#issueForm label');
     if (noteLabel?.firstChild) noteLabel.firstChild.nodeValue = 'Thêm ghi chú';
   }
-  async function reload() { const data = await api(); user = data.user; customers = data.rows || []; const name = user.name || 'Quản trị viên'; $('#user').textContent = `${name} · Admin`; $('#avatar').textContent = initials(name); updateNoteLabels(); render(); }
+  function addProductTypeUi() {
+    const customerCodeField = $('#form [name="customerCode"]');
+    if (customerCodeField && !$('#form [name="productType"]')) {
+      customerCodeField.closest('label').insertAdjacentHTML('afterend', '<label>Mảng hàng<select name="productType" required><option value="" selected disabled>Chọn mảng hàng</option><option>HÀNG CN</option><option>HÀNG CK</option></select></label>');
+    }
+    const header = document.querySelector('thead tr');
+    if (header && !header.querySelector('[data-product-type-header]')) {
+      header.children[2].insertAdjacentHTML('afterend', '<th data-product-type-header>MẢNG HÀNG</th>');
+    }
+    document.querySelectorAll('#rows tr[data-id]').forEach(row => {
+      if (row.querySelector('[data-product-type]')) return;
+      const customer = customers.find(item => item.id === row.dataset.id);
+      if (!customer) return;
+      const value = customer.productType || '';
+      row.children[2].insertAdjacentHTML('afterend', `<td><select class="status" data-product-type><option value="" disabled ${!value ? 'selected' : ''}>Chọn mảng</option><option ${value === 'HÀNG CN' ? 'selected' : ''}>HÀNG CN</option><option ${value === 'HÀNG CK' ? 'selected' : ''}>HÀNG CK</option></select></td>`);
+    });
+    const empty = $('#rows .empty');
+    if (empty) empty.colSpan = 13;
+  }
+  async function reload() { const data = await api(); user = data.user; customers = data.rows || []; const name = user.name || 'Quản trị viên'; $('#user').textContent = `${name} · Admin`; $('#avatar').textContent = initials(name); updateNoteLabels(); render(); addProductTypeUi(); }
   function detail(customer) {
     selected = customer;
     const versions = customer.priceVersions || [];
@@ -86,6 +105,7 @@
   document.querySelectorAll('.modal').forEach(modal => { modal.addEventListener('click', event => { if (event.target === modal) close(modal); }); modal.querySelectorAll('.close,.cancel').forEach(button => button.onclick = () => close(modal)); });
   $('#rows').onclick = event => { const row = event.target.closest('tr[data-id]'); if (!row) return; const customer = customers.find(item => item.id === row.dataset.id); if (!customer) return; if (event.target.closest('[data-detail]')) detail(customer); if (event.target.closest('[data-price]')) { selected = customer; $('#priceForm').reset(); $('#priceForm').freightPrice.value = currentPrice(customer).freightPrice || ''; $('#priceForm').fees.value = currentPrice(customer).fees || ''; $('#priceForm').effectiveDate.value = isoToday(); open($('#priceModal')); } if (event.target.closest('[data-issue]')) showIssues(customer); };
   $('#rows').onchange = event => { const row = event.target.closest('tr[data-id]'), select = event.target.closest('[data-status]'); if (!row || !select) return; api('POST', { action: 'status', id: row.dataset.id, record: { status: select.value } }).then(reload).catch(error => alert(error.message)); };
+  $('#rows').addEventListener('change', event => { const row = event.target.closest('tr[data-id]'), select = event.target.closest('[data-product-type]'); if (!row || !select) return; api('POST', { action: 'productType', id: row.dataset.id, record: { productType: select.value } }).then(reload).catch(error => alert(error.message)); });
   $('#form').onsubmit = async event => { event.preventDefault(); const value = Object.fromEntries(new FormData(event.target)), groups = String(value.groups || '').split('\n').map(line => { const [name, link] = line.split('|'); return { name: String(name || '').trim(), link: String(link || '').trim() }; }).filter(group => group.name); try { await api('POST', { action: 'create', record: { ...value, groups } }); close($('#formModal')); await reload(); } catch (error) { alert(error.message); } };
   $('#priceForm').onsubmit = async event => { event.preventDefault(); if (!selected) return; try { await api('POST', { action: 'addPrice', id: selected.id, record: Object.fromEntries(new FormData(event.target)) }); close($('#priceModal')); await reload(); detail(customers.find(customer => customer.id === selected.id)); } catch (error) { alert(error.message); } };
   $('#issueForm').onsubmit = async event => { event.preventDefault(); if (!selected) return; try { await api('POST', { action: 'addIssue', id: selected.id, record: Object.fromEntries(new FormData(event.target)) }); close($('#issueModal')); await reload(); detail(customers.find(customer => customer.id === selected.id)); } catch (error) { alert(error.message); } };
