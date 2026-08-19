@@ -7,6 +7,7 @@ const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
 const crmConfigFile = path.join(__dirname, 'crm-config.json');
 const crmNewDataFile = path.join(__dirname, 'crm-new-data.json');
+const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -72,6 +73,19 @@ function saveCrmNewRows(rows) {
   fs.writeFileSync(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, crmNewDataFile);
 }
+function accountingDemoData() {
+  if (!fs.existsSync(accountingDemoDataFile)) return {};
+  try {
+    const data = JSON.parse(fs.readFileSync(accountingDemoDataFile, 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch { throw new Error('Dữ liệu nhập liệu demo không hợp lệ.'); }
+}
+function saveAccountingDemoData(data) {
+  const temporary = `${accountingDemoDataFile}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, accountingDemoDataFile);
+}
+function canUseAccountingDemo(user) { return user && ['admin', 'accountant'].includes(user.role); }
 function crmNewToday() {
   const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts().filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
@@ -514,10 +528,32 @@ http.createServer(async (req, res) => {
       return send(res, 400, { error: 'Thao tác CRM Mới không hợp lệ.' });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu CRM Mới.' }); }
   }
+  if (pathname === '/api/accounting-entry-demo' && req.method === 'GET') {
+    if (!canUseAccountingDemo(user)) return send(res, user ? 403 : 401, { error: 'Chỉ Admin hoặc Kế toán được sử dụng khu vực nhập liệu.' });
+    try { return send(res, 200, { data: accountingDemoData(), user: profile(user) }); }
+    catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu nhập liệu demo.' }); }
+  }
+  if (pathname === '/api/accounting-entry-demo' && req.method === 'POST') {
+    if (!canUseAccountingDemo(user)) return send(res, user ? 403 : 401, { error: 'Chỉ Admin hoặc Kế toán được sử dụng khu vực nhập liệu.' });
+    try {
+      const { report, accountant, rows } = await readJson(req);
+      if (!['cn', 'ck'].includes(report) || !['thuy', 'yen'].includes(accountant) || !Array.isArray(rows) || rows.length > 1000) return send(res, 400, { error: 'Dữ liệu nhập liệu demo không hợp lệ.' });
+      const cleanRows = rows.map(row => Array.isArray(row) ? row.slice(0, 50).map(value => String(value ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 500)) : []).filter(row => row.some(value => value.trim()));
+      const data = accountingDemoData(), key = `${report}:${accountant}`;
+      data[key] = { rows: cleanRows, updatedAt: new Date().toISOString(), updatedBy: user.name || user.username };
+      saveAccountingDemoData(data);
+      return send(res, 200, { ok: true, record: data[key] });
+    } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu nhập liệu demo.' }); }
+  }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', '<script src="/crm-new-dashboard-link.js"></script><script src="/crm-new-app.js"></script></body>'), 'text/html; charset=utf-8'));
+  }
+  if (pathname === '/accounting-entry-demo.html') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (!canUseAccountingDemo(user)) return send(res, 403, 'Chỉ Admin hoặc Kế toán được sử dụng khu vực nhập liệu.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(publicDir, 'accounting-entry-demo.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang nhập liệu demo.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
