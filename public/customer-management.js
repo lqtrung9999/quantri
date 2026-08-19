@@ -76,8 +76,8 @@
       : '<p class="sub">Chưa có lần thanh toán nào được ghi nhận.</p>';
     $('#pane-payments').innerHTML = `<div class="pane-title"><span>${payments.length} lần thanh toán · Công nợ hiện tại: ${money(customer.outstandingDebt)}</span></div>${paymentContent}`;
 
-    const issueRows = issues.map((issue, index) => `<div class="history-row"><span>Note ${index + 1}</span><b>${esc(issue.createdBy || issue.title || 'Người dùng')}</b><span>${esc(issue.content || issue.note || issue.description || '—')}</span><span>${esc(dateTime(issue.createdAt))}</span></div>`).join('');
-    $('#pane-issues').innerHTML = `<div class="pane-title"><span>${issues.length} ghi chú</span></div><div class="history-row head"><span>#</span><span>Người ghi</span><span>Nội dung</span><span>Thời gian</span></div>${issueRows || '<p class="sub">Chưa có ghi chú nào.</p>'}`;
+    const issueRows = issues.map((issue, index) => `<div class="history-row" style="grid-template-columns:210px minmax(440px,1fr) 170px"><b>Note ${index + 1} · ${esc(issue.createdBy || issue.title || 'Người dùng')}</b><span>${esc(issue.content || issue.note || issue.description || '—')}</span><span>${esc(dateTime(issue.createdAt))}</span></div>`).join('');
+    $('#pane-issues').innerHTML = `<div class="pane-title"><span>${issues.length} ghi chú</span></div><div class="history-row head" style="grid-template-columns:210px minmax(440px,1fr) 170px"><span>Tiêu đề</span><span>Nội dung</span><span>Thời gian</span></div>${issueRows || '<p class="sub">Chưa có ghi chú nào.</p>'}`;
 
     document.querySelectorAll('.tabs .tab,.pane').forEach(element => element.classList.remove('active'));
     document.querySelector('[data-pane="price"]').classList.add('active');
