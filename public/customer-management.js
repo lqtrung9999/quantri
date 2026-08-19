@@ -2,6 +2,11 @@
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const money = value => `${new Intl.NumberFormat('vi-VN').format(Number(value || 0))} đ`;
+  const dateTime = value => {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+  };
   const initials = name => String(name || '').split(/\s+/).map(word => word[0]).slice(-2).join('').toUpperCase();
   const isoToday = () => new Date().toISOString().slice(0, 10);
   let user, customers = [], selected;
@@ -44,7 +49,7 @@
       : '<p class="sub">Chưa có lần thanh toán nào được ghi nhận.</p>';
     $('#pane-payments').innerHTML = `<div class="pane-title"><span>${payments.length} lần thanh toán · Công nợ hiện tại: ${money(customer.outstandingDebt)}</span></div>${paymentContent}`;
 
-    const issueRows = issues.map((issue, index) => `<div class="history-row"><span>Vấn đề ${index + 1}</span><b>${esc(issue.title || 'Vấn đề phát sinh')}</b><span>${esc(issue.note || '—')}</span><span>${esc(issue.createdAt || '—')}</span></div>`).join('');
+    const issueRows = issues.map((issue, index) => `<div class="history-row"><span>Note ${index + 1}</span><b>${esc(issue.createdBy || issue.title || 'Người dùng')}</b><span>${esc(issue.content || issue.note || issue.description || '—')}</span><span>${esc(dateTime(issue.createdAt))}</span></div>`).join('');
     $('#pane-issues').innerHTML = `<div class="pane-title"><span>${issues.length} Note vấn đề phát sinh</span></div><div class="history-row head"><span>#</span><span>Tiêu đề</span><span>Nội dung</span><span>Thời gian</span></div>${issueRows || '<p class="sub">Chưa có Note vấn đề phát sinh.</p>'}`;
 
     document.querySelectorAll('.tabs .tab,.pane').forEach(element => element.classList.remove('active'));
@@ -63,7 +68,7 @@
     const issues = customer.issues || [];
     $('#issueTitle').textContent = 'Vấn đề phát sinh · ' + customer.name;
     $('#issueList').innerHTML = issues.length
-      ? issues.map((issue, index) => `<div class="note"><b>Vấn đề ${index + 1} · ${esc(issue.title || 'Chưa đặt tiêu đề')}</b><p>${esc(issue.note || '—')}</p><small>${esc(issue.createdAt || '')}</small></div>`).join('')
+      ? issues.map((issue, index) => `<div class="note"><b>Note ${index + 1}${issue.createdBy ? ' · ' + esc(issue.createdBy) : ''}</b><p>${esc(issue.content || issue.note || issue.description || '—')}</p><small>${esc(dateTime(issue.createdAt))}</small></div>`).join('')
       : '<p class="sub">Chưa có Note vấn đề phát sinh.</p>';
     $('#issueForm').reset();
     open($('#issueModal'));
