@@ -4,6 +4,7 @@ users.json
 .session-secret
 crm-config.json
 crm-new-data.json
+crm-new-sync-config.json
 accounting-entry-demo.json
 customer-management-data.json
 lark-config.json
