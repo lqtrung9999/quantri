@@ -497,15 +497,6 @@ http.createServer(async (req, res) => {
     try {
       const { action, record, id, text } = await readJson(req);
       const rows = crmNewRows();
-      if (action === 'deleteBySale') {
-        if (user.role !== 'admin') return send(res, 403, { error: 'Chỉ Admin được xoá dữ liệu CRM Mới theo Sale.' });
-        const sale = String(record?.sale || '').trim();
-        if (!sale) return send(res, 400, { error: 'Cần chọn Sale cần xoá dữ liệu.' });
-        const retained = rows.filter(row => !sameSale(row.sale, sale));
-        const deleted = rows.length - retained.length;
-        if (deleted) saveCrmNewRows(retained);
-        return send(res, 200, { ok: true, deleted, sale });
-      }
       if (user.role !== 'sale') return send(res, 403, { error: 'Chỉ tài khoản Sale có thể cập nhật CRM.' });
       if (action === 'create') {
         const name = String(record?.name || '').trim();
