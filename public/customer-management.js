@@ -16,7 +16,15 @@
   function filtered() { const term = $('#search').value.trim().toLocaleLowerCase('vi-VN'), channel = $('#channel').value, issues = $('#issueFilter').value; return customers.filter(customer => { const groups = (customer.groups || []).map(group => `${group.name} ${group.link}`).join(' '), hasIssue = (customer.issues || []).length > 0, haystack = `${customer.name} ${customer.code} ${customer.phone} ${groups}`.toLocaleLowerCase('vi-VN'); const issueMatches = !issues || (issues === 'issue' ? hasIssue : !hasIssue); return (!term || haystack.includes(term)) && (!channel || customer.channel === channel) && issueMatches; }); }
   function renderKpis() { const active = customers.filter(customer => customer.status === 'Đang hoạt động'), groups = customers.reduce((total, customer) => total + (customer.groups || []).length, 0), issues = customers.reduce((total, customer) => total + (customer.issues || []).length, 0), revenue = customers.reduce((total, customer) => total + Number(customer.lifetimeRevenue || 0), 0); $('#activeCount').textContent = active.length; $('#groups').textContent = groups; $('#issues').textContent = issues; $('#revenue').textContent = money(revenue); }
   function render() { renderKpis(); const list = filtered(); $('#rows').innerHTML = list.map((customer, index) => { const price = currentPrice(customer), issues = (customer.issues || []).length, debt = Number(customer.outstandingDebt || 0); return `<tr data-id="${esc(customer.id)}"><td>${index + 1}</td><td><button class="name" data-detail>${esc(customer.name)}</button><div class="sub">${esc(customer.phone)}</div></td><td><b>${esc(customer.code)}</b></td><td><select class="status ${customer.status === 'Đã dừng gửi hàng' ? 'stopped' : ''}" data-status><option ${customer.status === 'Đang hoạt động' ? 'selected' : ''}>Đang hoạt động</option><option ${customer.status === 'Đã dừng gửi hàng' ? 'selected' : ''}>Đã dừng gửi hàng</option></select></td><td><span class="channel">${esc(customer.channel)}</span></td><td>${(customer.groups || []).length} nhóm</td><td><div class="price">${esc(price.freightPrice || 'Chưa cập nhật')}</div><button class="price-btn" data-price>↻ Cập nhật giá</button></td><td>${new Intl.NumberFormat('vi-VN').format(Number(customer.orderCount || 0))} đơn</td><td><b>${money(customer.lifetimeRevenue)}</b></td><td><b class="${debt > 0 ? 'debt' : ''}">${money(debt)}</b></td><td><button class="note-btn" data-issue>✎ ${issues} Note</button></td><td>${esc(customer.salesOwner || 'Chưa phân công')}</td></tr>`; }).join('') || '<tr><td colspan="12" class="empty">Chưa có khách hàng sử dụng dịch vụ. Bấm “Thêm khách hàng” để bắt đầu.</td></tr>'; }
-  async function reload() { const data = await api(); user = data.user; customers = data.rows || []; const name = user.name || 'Quản trị viên'; $('#user').textContent = `${name} · Admin`; $('#avatar').textContent = initials(name); render(); }
+  function updateNoteLabels() {
+    const tableHeader = document.querySelector('thead th:nth-child(11)');
+    if (tableHeader) tableHeader.textContent = 'GHI CHÚ';
+    const noteTab = document.querySelector('[data-pane="issues"]');
+    if (noteTab) noteTab.textContent = 'Ghi chú';
+    const noteLabel = document.querySelector('#issueForm label');
+    if (noteLabel?.firstChild) noteLabel.firstChild.nodeValue = 'Thêm ghi chú';
+  }
+  async function reload() { const data = await api(); user = data.user; customers = data.rows || []; const name = user.name || 'Quản trị viên'; $('#user').textContent = `${name} · Admin`; $('#avatar').textContent = initials(name); updateNoteLabels(); render(); }
   function detail(customer) {
     selected = customer;
     const versions = customer.priceVersions || [];
@@ -50,7 +58,7 @@
     $('#pane-payments').innerHTML = `<div class="pane-title"><span>${payments.length} lần thanh toán · Công nợ hiện tại: ${money(customer.outstandingDebt)}</span></div>${paymentContent}`;
 
     const issueRows = issues.map((issue, index) => `<div class="history-row"><span>Note ${index + 1}</span><b>${esc(issue.createdBy || issue.title || 'Người dùng')}</b><span>${esc(issue.content || issue.note || issue.description || '—')}</span><span>${esc(dateTime(issue.createdAt))}</span></div>`).join('');
-    $('#pane-issues').innerHTML = `<div class="pane-title"><span>${issues.length} Note vấn đề phát sinh</span></div><div class="history-row head"><span>#</span><span>Tiêu đề</span><span>Nội dung</span><span>Thời gian</span></div>${issueRows || '<p class="sub">Chưa có Note vấn đề phát sinh.</p>'}`;
+    $('#pane-issues').innerHTML = `<div class="pane-title"><span>${issues.length} ghi chú</span></div><div class="history-row head"><span>#</span><span>Người ghi</span><span>Nội dung</span><span>Thời gian</span></div>${issueRows || '<p class="sub">Chưa có ghi chú nào.</p>'}`;
 
     document.querySelectorAll('.tabs .tab,.pane').forEach(element => element.classList.remove('active'));
     document.querySelector('[data-pane="price"]').classList.add('active');
@@ -66,10 +74,10 @@
   function showIssues(customer) {
     selected = customer;
     const issues = customer.issues || [];
-    $('#issueTitle').textContent = 'Vấn đề phát sinh · ' + customer.name;
+    $('#issueTitle').textContent = 'Ghi chú · ' + customer.name;
     $('#issueList').innerHTML = issues.length
       ? issues.map((issue, index) => `<div class="note"><b>Note ${index + 1}${issue.createdBy ? ' · ' + esc(issue.createdBy) : ''}</b><p>${esc(issue.content || issue.note || issue.description || '—')}</p><small>${esc(dateTime(issue.createdAt))}</small></div>`).join('')
-      : '<p class="sub">Chưa có Note vấn đề phát sinh.</p>';
+      : '<p class="sub">Chưa có ghi chú nào.</p>';
     $('#issueForm').reset();
     open($('#issueModal'));
   }
