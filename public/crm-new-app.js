@@ -70,8 +70,8 @@
   function renderMetrics() {
     const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
     const count = predicate => leads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
-    const values = [workingLeads.length, workingLeads.filter(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)).length, count(lead => lead.category === 'Khách không tiềm năng' && lead.result !== 'Đã Chốt'), count(lead => lead.result === 'Đã Chốt')];
-    const descriptions = ['Tất cả khách hàng đang quản lý', 'Gồm tiềm năng và cực kỳ tiềm năng', 'Theo phân loại khách hàng', 'Khách đã được xác nhận chốt'];
+    const values = [leads.length, workingLeads.filter(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)).length, count(lead => lead.category === 'Khách không tiềm năng' && lead.result !== 'Đã Chốt'), count(lead => lead.result === 'Đã Chốt')];
+    const descriptions = ['Tất cả data khách hàng đã tạo', 'Gồm tiềm năng và cực kỳ tiềm năng', 'Theo phân loại khách hàng', 'Khách đã được xác nhận chốt'];
     const labels = ['TỔNG DATA', 'KHÁCH HÀNG TIỀM NĂNG', 'KHÁCH HÀNG KHÔNG TIỀM NĂNG', 'ĐÃ CHỐT'];
     cards.forEach((card, index) => { card.querySelector('.label').textContent = labels[index]; card.querySelector('b').textContent = values[index]; card.querySelector('b + span').textContent = descriptions[index]; card.querySelector('b + span').className = values[index] ? 'green' : ''; });
     cards[2].classList.add('archive-card');
