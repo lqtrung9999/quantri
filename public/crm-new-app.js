@@ -40,7 +40,7 @@
     return leads.filter(lead => {
       const isNonPotential = lead.category === 'Khách không tiềm năng';
       const isClosed = lead.result === 'Đã Chốt';
-      const quick = activeTab === 'all' ? !isNonPotential && !isClosed : activeTab === 'nonpotential' ? isNonPotential && !isClosed : activeTab === 'closed' ? isClosed : !isNonPotential && !isClosed && lead.status === activeTab.slice(7);
+      const quick = activeTab === 'all' ? !isNonPotential && !isClosed : activeTab === 'potential' ? !isNonPotential && !isClosed && ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category) : activeTab === 'nonpotential' ? isNonPotential && !isClosed : activeTab === 'closed' ? isClosed : !isNonPotential && !isClosed && lead.status === activeTab.slice(7);
       const text = `${lead.name} ${lead.phone} ${lead.product} ${lead.sale}`.toLocaleLowerCase('vi-VN');
       return quick && (!search || text.includes(search)) && (sourceFilter === 'Tất cả nguồn' || lead.source === sourceFilter) && (statusFilter === 'Mọi trạng thái Zalo' || lead.status === statusFilter);
     });
@@ -75,6 +75,9 @@
     const labels = ['TỔNG DATA', 'KHÁCH HÀNG TIỀM NĂNG', 'KHÁCH HÀNG KHÔNG TIỀM NĂNG', 'ĐÃ CHỐT'];
     cards.forEach((card, index) => { card.querySelector('.label').textContent = labels[index]; card.querySelector('b').textContent = values[index]; card.querySelector('b + span').textContent = descriptions[index]; card.querySelector('b + span').className = values[index] ? 'green' : ''; });
     cards[2].classList.add('archive-card');
+    cards[1].classList.add('archive-card');
+    cards[1].classList.toggle('active', activeTab === 'potential');
+    cards[1].onclick = () => { activeTab = activeTab === 'potential' ? 'all' : 'potential'; render(); };
     cards[2].classList.toggle('active', activeTab === 'nonpotential');
     cards[2].onclick = () => { activeTab = activeTab === 'nonpotential' ? 'all' : 'nonpotential'; render(); };
     cards[3].classList.add('archive-card');
