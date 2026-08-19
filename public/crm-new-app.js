@@ -7,6 +7,7 @@
   const dateText = iso => { const [year, month, day] = String(iso || '').slice(0, 10).split('-'); return year ? `${day}/${month}/${year}` : '—'; };
   const initials = name => String(name || '').split(/\s+/).map(word => word[0]).slice(-2).join('').toUpperCase();
   const localIso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const saleTeam = sale => { const value = String(sale || '').trim().toLocaleUpperCase('vi-VN'); return value.startsWith('P5') || value.startsWith('TP5') ? 'P5' : value.startsWith('P8') || value.startsWith('TP8') ? 'P8' : ''; };
   let user, leads = [], activeTab = 'all', currentNote;
   $('#rows').innerHTML = '';
 
@@ -31,7 +32,7 @@
 
   const summaryReportModal = document.createElement('div');
   summaryReportModal.className = 'new-modal summary-report-modal';
-  summaryReportModal.innerHTML = `<div class="box"><div class="head">Báo cáo tổng hoạt động Sale<button class="close">×</button></div><div class="body"><div class="grid"><label>Xem theo<select id="summary-period"><option value="day">Ngày</option><option value="month">Tháng</option></select></label><label id="summary-day-wrap">Chọn ngày<input id="summary-day" type="date"></label><label id="summary-month-wrap" hidden>Chọn tháng<input id="summary-month" type="month"></label></div><div id="summary-report-content"></div></div><div class="foot"><button class="cancel">Đóng</button></div></div>`;
+  summaryReportModal.innerHTML = `<div class="box"><div class="head">Báo cáo tổng hoạt động Sale<button class="close">×</button></div><div class="body"><div class="grid"><label id="summary-team-wrap" hidden>Phạm vi xem<select id="summary-team"><option value="all">Toàn công ty</option><option value="P5">Phòng 5</option><option value="P8">Phòng 8</option></select></label><label>Xem theo<select id="summary-period"><option value="day">Ngày</option><option value="month">Tháng</option></select></label><label id="summary-day-wrap">Chọn ngày<input id="summary-day" type="date"></label><label id="summary-month-wrap" hidden>Chọn tháng<input id="summary-month" type="month"></label></div><div id="summary-report-content"></div></div><div class="foot"><button class="cancel">Đóng</button></div></div>`;
   document.body.append(summaryReportModal);
 
   const api = async (method = 'GET', body) => { const response = await fetch('/api/crm-new/leads', body ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Không thể cập nhật CRM Mới.'); return data; };
@@ -95,7 +96,7 @@
   function openNotes(lead) { currentNote = lead; $('#note-title').textContent = `Lịch sử tương tác với khách hàng · ${lead.name}`; const notes = Array.isArray(lead.notes) ? lead.notes : []; $('#note-history').innerHTML = notes.length ? notes.map((note, index) => `<div class="history-item"><div class="history-meta"><span>Lần ${index + 1}</span><span>${new Date(note.at).toLocaleString('vi-VN')}</span></div><p>${esc(note.text)}</p></div>`).join('') : '<p class="muted">Chưa có ghi chú tương tác.</p>'; $('#note-text').value = ''; const editable = isOwner(lead); $('#note-entry').hidden = !editable; $('#save-note').hidden = !editable; noteModal.classList.add('open'); }
   function reportRows() { const period = $('#report-period').value, selected = period === 'month' ? $('#report-month').value : $('#report-day').value; return leads.filter(lead => period === 'month' ? lead.foundAt?.startsWith(selected) : lead.foundAt === selected); }
   function renderReport() { const rows = reportRows(), status = value => rows.filter(lead => lead.status === value).length, category = value => rows.filter(lead => lead.category === value).length, result = value => rows.filter(lead => lead.result === value).length, card = (label, value) => `<article class="report-card"><span>${label}</span><b>${value}</b></article>`; $('#report-content').innerHTML = `<div class="report-section">Tiến độ data trong kỳ</div><div class="report-grid">${card('DATA MỚI', rows.length)}${card('ĐÃ GỬI KẾT BẠN', status('Đã gửi lời mời kết bạn'))}${card('ĐÃ KẾT BẠN', status('Đã kết bạn'))}${card('GỬI TIN CHƯA PHẢN HỒI', status('Đã gửi tin nhắn khách chưa phản hồi'))}${card('KHÁCH ĐÃ TƯƠNG TÁC', status('Khách đã tương tác'))}${card('ĐÃ TƯ VẤN DỊCH VỤ', status('Đã tư vấn dịch vụ'))}</div><div class="report-section">Phân loại khách hàng</div><div class="report-grid">${card('CỰC KỲ TIỀM NĂNG', category('Khách cực kỳ tiềm năng'))}${card('KHÁCH TIỀM NĂNG', category('Khách tiềm năng'))}${card('KHÔNG TIỀM NĂNG', category('Khách không tiềm năng'))}</div><div class="report-section">Kết quả</div><div class="report-grid">${card('ĐÃ CHỐT', result('Đã Chốt'))}${card('CHƯA CHỐT ĐƯỢC', result('Chưa Chốt Được'))}</div>`; }
-  function summaryReportRows() { const period = $('#summary-period').value, selected = period === 'month' ? $('#summary-month').value : $('#summary-day').value; return leads.filter(lead => period === 'month' ? lead.foundAt?.startsWith(selected) : lead.foundAt === selected); }
+  function summaryReportRows() { const period = $('#summary-period').value, selected = period === 'month' ? $('#summary-month').value : $('#summary-day').value, team = user.role === 'admin' ? $('#summary-team').value : user.team; return leads.filter(lead => (team === 'all' || saleTeam(lead.sale) === team) && (period === 'month' ? lead.foundAt?.startsWith(selected) : lead.foundAt === selected)); }
   function renderSummaryReport() {
     const reportRows = summaryReportRows(), status = STATUS.slice(1), sales = new Map();
     reportRows.forEach(lead => {
@@ -114,7 +115,8 @@
       summary.data += row.data; status.forEach(value => { summary.status[value] += row.status[value]; }); summary.potential += row.potential; summary.nonPotential += row.nonPotential; summary.closed += row.closed; summary.notClosed += row.notClosed; return summary;
     }, { sale: 'TỔNG', data: 0, status: Object.fromEntries(status.map(value => [value, 0])), potential: 0, nonPotential: 0, closed: 0, notClosed: 0 });
     const cell = row => `<tr${row.sale === 'TỔNG' ? ' class="summary-report-total"' : ''}><td>${esc(row.sale)}</td><td>${row.data}</td>${status.map(value => `<td>${row.status[value]}</td>`).join('')}<td>${row.potential}</td><td>${row.nonPotential}</td><td>${row.closed}</td><td>${row.notClosed}</td></tr>`;
-    const scope = user.role === 'admin' ? 'toàn công ty' : `Phòng ${user.team}`;
+    const chosenTeam = user.role === 'admin' ? $('#summary-team').value : user.team;
+    const scope = chosenTeam === 'all' ? 'toàn công ty' : `Phòng ${chosenTeam.slice(1)}`;
     $('#summary-report-content').innerHTML = `<div class="summary-report-title">${esc(scope)} · ${reportRows.length} data phát sinh trong kỳ</div><div class="summary-report-wrap"><table><thead><tr><th>SALE</th><th>DATA MỚI</th><th>ĐÃ GỬI LỜI MỜI KẾT BẠN</th><th>ĐÃ KẾT BẠN</th><th>ĐÃ GỬI TIN NHẮN<br>CHƯA PHẢN HỒI</th><th>KHÁCH ĐÃ<br>TƯƠNG TÁC</th><th>ĐÃ TƯ VẤN<br>DỊCH VỤ</th><th>KHÁCH HÀNG<br>TIỀM NĂNG</th><th>KHÔNG<br>TIỀM NĂNG</th><th>ĐÃ CHỐT</th><th>CHƯA CHỐT<br>ĐƯỢC</th></tr></thead><tbody>${cell(total)}${rows.map(cell).join('') || `<tr><td colspan="11">Chưa có data phát sinh trong kỳ được chọn.</td></tr>`}</tbody></table></div>`;
   }
 
@@ -140,8 +142,9 @@
   reportModal.querySelector('.close').onclick = reportModal.querySelector('.cancel').onclick = () => reportModal.classList.remove('open');
   reportModal.addEventListener('click', event => { if (event.target === reportModal) reportModal.classList.remove('open'); });
   $('#summary-period').onchange = () => { const monthly = $('#summary-period').value === 'month'; $('#summary-day-wrap').hidden = monthly; $('#summary-month-wrap').hidden = !monthly; renderSummaryReport(); };
+  $('#summary-team').onchange = renderSummaryReport;
   $('#summary-day').onchange = $('#summary-month').onchange = renderSummaryReport;
   summaryReportModal.querySelector('.close').onclick = summaryReportModal.querySelector('.cancel').onclick = () => summaryReportModal.classList.remove('open');
   summaryReportModal.addEventListener('click', event => { if (event.target === summaryReportModal) summaryReportModal.classList.remove('open'); });
-  reload().then(() => { summaryReportButton.hidden = !(user.role === 'admin' || user.team); }).catch(error => { $('#rows').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:42px;color:#d64f42">${esc(error.message)}</td></tr>`; });
+  reload().then(() => { summaryReportButton.hidden = !(user.role === 'admin' || user.team); $('#summary-team-wrap').hidden = user.role !== 'admin'; }).catch(error => { $('#rows').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:42px;color:#d64f42">${esc(error.message)}</td></tr>`; });
 })();
