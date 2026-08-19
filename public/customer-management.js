@@ -59,8 +59,8 @@
       ['Sale phụ trách', esc(customer.salesOwner || 'Chưa phân công')]
     ].map(([label, value]) => `<div class="box"><span>${label}</span><b>${value}</b></div>`).join('');
 
-    const priceRows = versions.map(version => `<div class="history-row"><span>${esc(version.effectiveDate || '—')}</span><b>${esc(version.freightPrice || 'Chưa cập nhật')}</b><span>${esc(version.fees || 'Không thu phí')}</span><span class="${version.isCurrent ? 'current' : ''}">${version.isCurrent ? 'Đang áp dụng' : 'Lịch sử'}</span></div>`).join('');
-    $('#pane-price').innerHTML = `<div class="pane-title"><span>Lịch sử giá cước và các loại phí đã chốt</span><button class="action primary" id="openPrice">＋ Cập nhật giá cước</button></div><div class="history-row head"><span>Ngày áp dụng</span><span>Giá cước chốt</span><span>Các loại phí</span><span>Trạng thái</span></div>${priceRows || '<p class="sub">Chưa có lịch sử giá cước.</p>'}`;
+    const priceRows = versions.map(version => `<div class="history-row" style="grid-template-columns:190px 300px minmax(420px,1fr) 180px"><span>${esc(version.effectiveDate || '—')}</span><b>${esc(version.freightPrice || 'Chưa cập nhật')}</b><span>${esc(version.fees || 'Không thu phí')}</span><span class="${version.isCurrent ? 'current' : ''}">${version.isCurrent ? 'Đang áp dụng' : 'Lịch sử'}</span></div>`).join('');
+    $('#pane-price').innerHTML = `<div class="pane-title"><span>Lịch sử giá cước và các loại phí đã chốt</span><button class="action primary" id="openPrice">＋ Cập nhật giá cước</button></div><div class="history-row head" style="grid-template-columns:190px 300px minmax(420px,1fr) 180px"><span>Ngày áp dụng</span><span>Giá cước chốt</span><span>Các loại phí</span><span>Trạng thái</span></div>${priceRows || '<p class="sub">Chưa có lịch sử giá cước.</p>'}`;
 
     const groupRows = groups.map((group, index) => {
       const link = group.link ? `<a href="${esc(group.link)}" target="_blank" rel="noopener">Mở liên kết</a>` : 'Chưa có liên kết';
