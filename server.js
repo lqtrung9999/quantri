@@ -8,6 +8,7 @@ const usersFile = path.join(__dirname, 'users.json');
 const crmConfigFile = path.join(__dirname, 'crm-config.json');
 const crmNewDataFile = path.join(__dirname, 'crm-new-data.json');
 const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json');
+const customerManagementDataFile = path.join(__dirname, 'customer-management-data.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -85,6 +86,17 @@ function saveAccountingDemoData(data) {
   fs.writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, accountingDemoDataFile);
 }
+function customerManagementRows() {
+  if (!fs.existsSync(customerManagementDataFile)) return [];
+  try { const rows = JSON.parse(fs.readFileSync(customerManagementDataFile, 'utf8')); return Array.isArray(rows) ? rows : []; }
+  catch { throw new Error('Dữ liệu Quản lý Khách hàng không hợp lệ.'); }
+}
+function saveCustomerManagementRows(rows) {
+  const temporary = `${customerManagementDataFile}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, customerManagementDataFile);
+}
+function canUseCustomerManagement(user) { return user?.role === 'admin'; }
 function canUseAccountingDemo(user) { return user && ['admin', 'accountant'].includes(user.role); }
 function crmNewToday() {
   const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts().filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
@@ -545,6 +557,44 @@ http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, record: data[key] });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu nhập liệu demo.' }); }
   }
+  if (pathname === '/api/customer-management' && req.method === 'GET') {
+    if (!canUseCustomerManagement(user)) return send(res, user ? 403 : 401, { error: 'Giai đoạn này chỉ Admin được sử dụng Quản lý Khách hàng.' });
+    try { return send(res, 200, { rows: customerManagementRows(), user: profile(user) }); }
+    catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu khách hàng.' }); }
+  }
+  if (pathname === '/api/customer-management' && req.method === 'POST') {
+    if (!canUseCustomerManagement(user)) return send(res, user ? 403 : 401, { error: 'Giai đoạn này chỉ Admin được cập nhật Quản lý Khách hàng.' });
+    try {
+      const { action, id, record } = await readJson(req), rows = customerManagementRows();
+      const channels = ['Wechat', 'Zalo', 'Telegram', 'Lark'];
+      if (action === 'create') {
+        const name = String(record?.name || '').trim(), phone = String(record?.phone || '').trim(), channel = String(record?.channel || '').trim();
+        if (!name || !phone || !channels.includes(channel)) return send(res, 400, { error: 'Vui lòng nhập đủ tên, số điện thoại và kênh làm việc hợp lệ.' });
+        const highest = rows.reduce((max, row) => Math.max(max, Number(String(row.code || '').replace(/^KTT-/, '')) || 0), 0);
+        const groups = Array.isArray(record?.groups) ? record.groups.map(group => ({ name: String(group?.name || '').trim().slice(0, 300), link: String(group?.link || '').trim().slice(0, 1000), channel })).filter(group => group.name) : [];
+        const item = { id: crypto.randomUUID(), code: `KTT-${String(highest + 1).padStart(5, '0')}`, name: name.slice(0, 150), phone: phone.slice(0, 50), status: 'Đang hoạt động', channel, groups, priceVersions: [{ id: crypto.randomUUID(), freightPrice: String(record?.price || '').trim().slice(0, 300), fees: String(record?.fees || '').trim().slice(0, 500), effectiveDate: crmNewToday(), reason: 'Thiết lập ban đầu', createdBy: user.name, createdAt: new Date().toISOString(), isCurrent: true }], issues: [], payments: [], note: String(record?.note || '').trim().slice(0, 4000), salesOwner: String(record?.salesOwner || user.sale || user.name).trim().slice(0, 100), orderCount: 0, lifetimeRevenue: 0, outstandingDebt: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        rows.unshift(item); saveCustomerManagementRows(rows); return send(res, 201, { record: item });
+      }
+      const item = rows.find(row => row.id === id);
+      if (!item) return send(res, 404, { error: 'Không tìm thấy khách hàng.' });
+      if (action === 'status') {
+        const status = String(record?.status || ''); if (!['Đang hoạt động', 'Đã dừng gửi hàng'].includes(status)) return send(res, 400, { error: 'Tình trạng khách hàng không hợp lệ.' });
+        item.status = status; item.updatedAt = new Date().toISOString(); saveCustomerManagementRows(rows); return send(res, 200, { record: item });
+      }
+      if (action === 'addPrice') {
+        const freightPrice = String(record?.freightPrice || '').trim(); if (!freightPrice) return send(res, 400, { error: 'Vui lòng nhập giá cước.' });
+        item.priceVersions = Array.isArray(item.priceVersions) ? item.priceVersions : []; item.priceVersions.forEach(version => { version.isCurrent = false; });
+        item.priceVersions.unshift({ id: crypto.randomUUID(), freightPrice: freightPrice.slice(0, 300), fees: String(record?.fees || '').trim().slice(0, 500), effectiveDate: String(record?.effectiveDate || crmNewToday()).slice(0, 10), reason: String(record?.reason || '').trim().slice(0, 1000), createdBy: user.name, createdAt: new Date().toISOString(), isCurrent: true });
+        item.updatedAt = new Date().toISOString(); saveCustomerManagementRows(rows); return send(res, 200, { record: item });
+      }
+      if (action === 'addIssue') {
+        const content = String(record?.content || '').trim(); if (!content) return send(res, 400, { error: 'Vui lòng nhập nội dung vấn đề.' });
+        item.issues = Array.isArray(item.issues) ? item.issues : []; item.issues.push({ id: crypto.randomUUID(), content: content.slice(0, 4000), createdBy: user.name, createdAt: new Date().toISOString() });
+        item.updatedAt = new Date().toISOString(); saveCustomerManagementRows(rows); return send(res, 200, { record: item });
+      }
+      return send(res, 400, { error: 'Thao tác quản lý khách hàng không hợp lệ.' });
+    } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu khách hàng.' }); }
+  }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
@@ -554,6 +604,11 @@ http.createServer(async (req, res) => {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseAccountingDemo(user)) return send(res, 403, 'Chỉ Admin hoặc Kế toán được sử dụng khu vực nhập liệu.', 'text/plain; charset=utf-8');
     return fs.readFile(path.join(publicDir, 'accounting-entry-demo.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang nhập liệu demo.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+  }
+  if (pathname === '/customer-management.html') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (!canUseCustomerManagement(user)) return send(res, 403, 'Giai đoạn này chỉ Admin được sử dụng Quản lý Khách hàng.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(publicDir, 'customer-management.html'), (error, content) => error ? send(res, 500, 'Không thể tải Quản lý Khách hàng.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
