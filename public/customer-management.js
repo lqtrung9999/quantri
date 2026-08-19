@@ -43,7 +43,14 @@
     const empty = $('#rows .empty');
     if (empty) empty.colSpan = 13;
   }
-  async function reload() { const data = await api(); user = data.user; customers = data.rows || []; const name = user.name || 'Quản trị viên'; $('#user').textContent = `${name} · Admin`; $('#avatar').textContent = initials(name); updateNoteLabels(); render(); addProductTypeUi(); }
+  function ensureFullScreenLayout() {
+    if ($('.back-dashboard')) return;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'back-dashboard'; button.textContent = '← Dashboard';
+    button.onclick = () => { window.location.href = '/'; };
+    $('.top').prepend(button);
+  }
+  async function reload() { const data = await api(); user = data.user; customers = data.rows || []; const name = user.name || 'Quản trị viên'; $('#user').textContent = `${name} · Admin`; $('#avatar').textContent = initials(name); ensureFullScreenLayout(); updateNoteLabels(); render(); addProductTypeUi(); }
   function detail(customer) {
     selected = customer;
     const versions = customer.priceVersions || [];
