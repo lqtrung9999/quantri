@@ -32,16 +32,36 @@
     net: line.netWeightKg || '', gross: line.grossWeightKg || '', amount: line.totalUsd || '', importRate: line.importTaxRate || '',
     importTax: line.importTaxAmount || '', vatRate: line.vatRate || '', totalTax: line.totalTaxVnd || '', charCount: (line.goodsDescription || '').length
   });
-  const mapRow = row => ({
-    _id: row.id, code: row.cargoCode || '', lot: row.lotCode || '', packs: Number(row.packageCount || 0), name: row.productName || '',
-    customer: row.customerCode || '', owner: row.ownerName || '', sale: row.saleOwner || '', team: row.saleTeam || '',
-    accounting: row.accountant || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0), photos: 0,
-    docs: row.documentStatus || 'Chưa kiểm tra', status: status(row.status),
-    saleInfo: { productLines: (row.saleProductLines || []).map(mapLine) },
-    customsLines: (row.customsLines || []).map(mapCustomsLine),
-    supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
-    history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])
-  });
+  // The locked workflow renders the LIST KHAI BÁO badge from `row.customs`.
+  // API data is stored as `customsLines`, so expose its first row in the
+  // locked module's original shape as well.  This keeps the overview badge
+  // and the detailed declaration rows in sync after a declaration is saved.
+  const mapRow = row => {
+    const customsLines = (row.customsLines || []).map(mapCustomsLine);
+    const firstCustomsLine = customsLines[0] || null;
+    const customs = firstCustomsLine ? {
+      vi: firstCustomsLine.vi,
+      en: firstCustomsLine.en,
+      hs: firstCustomsLine.hs,
+      qty: firstCustomsLine.qty1,
+      unit: firstCustomsLine.unit1,
+      price: firstCustomsLine.price,
+      amount: firstCustomsLine.amount,
+      net: firstCustomsLine.net,
+      gross: firstCustomsLine.gross
+    } : null;
+    return {
+      _id: row.id, code: row.cargoCode || '', lot: row.lotCode || '', packs: Number(row.packageCount || 0), name: row.productName || '',
+      customer: row.customerCode || '', owner: row.ownerName || '', sale: row.saleOwner || '', team: row.saleTeam || '',
+      accounting: row.accountant || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0), photos: 0,
+      docs: row.documentStatus || 'Chưa kiểm tra', status: status(row.status),
+      saleInfo: { productLines: (row.saleProductLines || []).map(mapLine) },
+      customsLines,
+      customs,
+      supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
+      history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])
+    };
+  };
 
   function selectedShipment() {
     const title = document.querySelector('#cf-detail-title')?.textContent || '';
