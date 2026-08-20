@@ -12,6 +12,7 @@ const crmNewSyncConfigFile = path.join(__dirname, 'crm-new-sync-config.json');
 const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json');
 const customerManagementDataFile = path.join(__dirname, 'customer-management-data.json');
 const customsDataFile = path.join(__dirname, 'customs-coordination-data.json');
+const customsDataEpoch = 'warehouse-paste-only-v1';
 const customsReferenceFile = path.join(__dirname, 'customs-declared-goods.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
@@ -158,7 +159,15 @@ function customsActorRole(user) {
 }
 function customsRows() {
   if (!fs.existsSync(customsDataFile)) return [];
-  try { const rows = JSON.parse(fs.readFileSync(customsDataFile, 'utf8')); return Array.isArray(rows) ? rows : []; }
+  try {
+    const rows = JSON.parse(fs.readFileSync(customsDataFile, 'utf8'));
+    const list = Array.isArray(rows) ? rows : [];
+    // Customs HQ has one source of truth: rows pasted through Nhập kho TQ.
+    // Any legacy/demo/Lark rows are removed at the storage layer as well.
+    const approved = list.filter(row => row && row.dataEpoch === customsDataEpoch && row.source === 'warehouse_paste');
+    if (approved.length !== list.length) saveCustomsRows(approved);
+    return approved;
+  }
   catch { throw new Error('Dữ liệu điều phối khai báo không hợp lệ.'); }
 }
 function saveCustomsRows(rows) {
@@ -223,32 +232,9 @@ function customsSourceShipment(table, row) {
   };
 }
 async function syncCustomsWarehouseRows() {
-  if (customsWarehouseSyncCache.expiresAt > Date.now()) return customsRows();
-  const config = larkConfig();
-  if (!config) return customsRows();
-  const sourceConfig = config.sources.customsWarehouse || { label: 'Hàng vào kho TQ — Khai Báo HQ', spreadsheetToken: 'HNw4sIigxhLftjtECULjK6d6pOY', sheetId: 'bF1tJU', maxRows: 15000 };
-  const token = await larkToken(config);
-  const source = await resolveLarkSource(sourceConfig, token);
-  const table = tableFromRows(await larkRows(source, token), ['SỐ KIỆN', 'TÊN HÀNG']);
-  if (!table.cols.length) throw new Error('Không tìm thấy hàng tiêu đề Mã hàng, Số kiện, Tên hàng trên nguồn Khai Báo HQ.');
-  const incoming = table.rows.map(row => customsSourceShipment(table, row)).filter(Boolean);
-  const rows = customsRows();
-  let changed = false;
-  for (const sourceRow of incoming) {
-    const shipment = rows.find(item => normalized(item.cargoCode) === normalized(sourceRow.cargoCode));
-    if (shipment) {
-      for (const key of ['operationDate', 'lotCode', 'packageCount', 'productName', 'customerCode', 'ownerName', 'saleOwner', 'accountant', 'weightKg', 'volumeM3']) {
-        if (sourceRow[key] !== undefined && shipment[key] !== sourceRow[key]) { shipment[key] = sourceRow[key]; changed = true; }
-      }
-      if (!shipment.source) { shipment.source = 'lark_customs_warehouse'; changed = true; }
-      continue;
-    }
-    rows.push({ id: crypto.randomUUID(), ...sourceRow, source: 'lark_customs_warehouse', status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: [{ id: crypto.randomUUID(), lineNumber: 1, description: sourceRow.productName || '', packageCount: sourceRow.packageCount, productsPerPackage: '', productSize: '', declarationQuantity: 0, declarationUnit: 'PCE', invoicePriceBeforeVat: '', note: '', images: [] }], customsLines: [], supplementRequests: [], history: [{ id: crypto.randomUUID(), actorId: 'lark-sync', actorRole: 'warehouse_cn', actor: 'Đồng bộ Lark', action: 'import_lark_warehouse', fromStatus: '', toStatus: 'sale_required', content: `Đồng bộ từ nguồn hàng vào kho ngày ${sourceRow.operationDate}.`, createdAt: new Date().toISOString() }] });
-    changed = true;
-  }
-  if (changed) saveCustomsRows(rows);
-  customsWarehouseSyncCache = { expiresAt: Date.now() + 60000 };
-  return rows;
+  // The Customs HQ module is intentionally independent from Lark/Dashboard.
+  // Shipment rows are created only by the direct “Nhập dữ liệu hàng về kho TQ” paste flow.
+  return customsRows();
 }
 function numeric(value) { const normalizedValue = String(value ?? '').replace(/[,\s]/g, ''); const output = Number(normalizedValue); return Number.isFinite(output) ? output : 0; }
 function cleanCustomsLine(line, index) {
@@ -783,7 +769,7 @@ http.createServer(async (req, res) => {
       const query = new URL(req.url, 'https://dashboard.local').searchParams;
       const term = String(query.get('reference') || '').trim().toLocaleLowerCase('vi-VN');
       const references = term ? customsReferences().filter(row => `${row.hsCode || row[1] || ''} ${row.goodsName || row[2] || ''}`.toLocaleLowerCase('vi-VN').includes(term)).slice(0, 15) : [];
-      return send(res, 200, { rows: customsVisibleRows(user, await syncCustomsWarehouseRows()), references, user: profile(user) });
+      return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, user: profile(user) });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/customs-coordination' && req.method === 'POST') {
@@ -823,13 +809,13 @@ http.createServer(async (req, res) => {
           const shipment = rows.find(row => normalized(row.cargoCode) === normalized(cargoCode));
           if (shipment) {
             for (const key of Object.keys(sourceRow)) if (sourceRow[key] !== undefined && shipment[key] !== sourceRow[key]) shipment[key] = sourceRow[key];
-            shipment.source = 'warehouse_paste'; shipment.updatedAt = importedAt;
+            shipment.source = 'warehouse_paste'; shipment.dataEpoch = customsDataEpoch; shipment.updatedAt = importedAt;
             customsHistory(shipment, user, 'update_warehouse_paste', shipment.status, shipment.status, 'Kho TQ cập nhật dữ liệu từ bảng dán.');
             updated += 1;
             continue;
           }
           const createdShipment = {
-            id: crypto.randomUUID(), ...sourceRow, lotCode: '', source: 'warehouse_paste', status: 'sale_required', documentStatus: 'Chưa kiểm tra',
+            id: crypto.randomUUID(), ...sourceRow, lotCode: '', source: 'warehouse_paste', dataEpoch: customsDataEpoch, status: 'sale_required', documentStatus: 'Chưa kiểm tra',
             createdAt: importedAt, updatedAt: importedAt,
             saleProductLines: [{ id: crypto.randomUUID(), lineNumber: 1, description: sourceRow.productName || '', packageCount: sourceRow.packageCount, productsPerPackage: '', productSize: '', declarationQuantity: 0, declarationUnit: 'PCE', invoicePriceBeforeVat: '', note: '', images: [] }],
             customsLines: [], supplementRequests: [], history: []
@@ -842,12 +828,7 @@ http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, created, updated, total: created + updated });
       }
       if (action === 'create') {
-        if (!canWarehouse) return send(res, 403, { error: 'Chỉ Kho TQ hoặc Quản lý được tạo mã hàng.' });
-        const cargoCode = String(record?.cargoCode || '').trim().slice(0, 80), ownerName = String(record?.ownerName || '').trim().slice(0, 150);
-        if (!cargoCode || !ownerName) return send(res, 400, { error: 'Vui lòng nhập Mã hàng và Chủ hàng.' });
-        if (rows.some(row => row.cargoCode === cargoCode)) return send(res, 409, { error: 'Mã hàng đã tồn tại.' });
-        const shipment = { id: crypto.randomUUID(), operationDate: String(record?.operationDate || '').trim().slice(0, 20), cargoCode, lotCode: String(record?.lotCode || '').trim().slice(0, 80), customerCode: String(record?.customerCode || '').trim().slice(0, 80), ownerName, packageCount: numeric(record?.packageCount), weightKg: numeric(record?.weightKg), volumeM3: numeric(record?.volumeM3), saleOwner: String(record?.saleOwner || '').trim().slice(0, 150), accountant: String(record?.accountant || '').trim().slice(0, 120), status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: [], customsLines: [], supplementRequests: [], history: [] };
-        customsHistory(shipment, user, 'create_shipment', '', 'sale_required', 'Kho TQ tạo mã hàng và chuyển Sale bổ sung thông tin.'); rows.unshift(shipment); saveCustomsRows(rows); return send(res, 201, { record: shipment });
+        return send(res, 400, { error: 'Mã hàng chỉ được tạo bằng Nhập dữ liệu hàng về kho TQ.' });
       }
       const shipment = rows.find(row => row.id === id);
       if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng.' });

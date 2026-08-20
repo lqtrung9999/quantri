@@ -69,7 +69,7 @@
     return (window.KTT_CUSTOMS_DATA || []).find(row => row.code === code) || null;
   }
   async function request(action, id, record = {}) {
-    const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id, record }) });
+    const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id, record }) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'Không thể lưu thay đổi.');
     return payload;
@@ -290,7 +290,7 @@
     removeLotPresentation();
   }
   async function refresh() {
-    const response = await fetch(endpoint, { credentials: 'same-origin' });
+    const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'Không thể tải dữ liệu phân quyền.');
     currentUser = payload.user;
@@ -375,5 +375,14 @@
     applyRoleUi();
     syncConfirmationPresentation();
   }, 0), true);
+  function refreshWhenIdle() {
+    const active = document.activeElement;
+    const editing = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+    if (document.hidden || editing) return;
+    refresh().catch(error => console.warn('KTT customs live sync:', error));
+  }
+  window.addEventListener('focus', refreshWhenIdle);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshWhenIdle(); });
+  window.setInterval(refreshWhenIdle, 5000);
   refresh().catch(error => console.error('KTT customs session bridge:', error));
 })();
