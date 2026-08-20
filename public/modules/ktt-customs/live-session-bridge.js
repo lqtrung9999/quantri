@@ -70,25 +70,38 @@
   }
   function allowSale() { return ['sale', 'manager', 'admin'].includes(currentUser?.role); }
   function allowCustoms() { return ['customs_declaration', 'admin'].includes(currentUser?.role); }
-  function hide(element) { if (element) element.style.display = 'none'; }
+  function disablePane(selector, disabled) {
+    document.querySelector(selector)?.querySelectorAll('input, textarea, select, button').forEach(item => {
+      item.disabled = disabled;
+      item.setAttribute('aria-disabled', String(disabled));
+    });
+  }
   function applyRoleUi() {
     const userBox = document.querySelector('.cf-user');
-    if (userBox && currentUser) userBox.innerHTML = `<span>${esc(currentUser.name)} · ${esc(roleTitle(currentUser))}</span><button id="cf-logout" class="cf-avatar" title="Đăng xuất">${esc(initials(currentUser.name))}</button>`;
-    document.querySelector('#cf-logout')?.addEventListener('click', () => window.parent.postMessage({ type: 'ktt-customs-logout' }, '*'));
+    const sessionKey = currentUser ? `${currentUser.id}:${currentUser.name}:${currentUser.role}` : '';
+    if (userBox && currentUser && userBox.dataset.kttSessionUser !== sessionKey) {
+      userBox.innerHTML = `<span>${esc(currentUser.name)} · ${esc(roleTitle(currentUser))}</span><button id="cf-logout" class="cf-avatar" title="Đăng xuất">${esc(initials(currentUser.name))}</button>`;
+      userBox.dataset.kttSessionUser = sessionKey;
+      userBox.querySelector('#cf-logout')?.addEventListener('click', () => window.parent.postMessage({ type: 'ktt-customs-logout' }, '*'));
+    }
+
+    // All permitted users can see every workflow tab and every status.  Editing
+    // is limited by role; the API repeats the same checks on the server.
     if (!allowSale()) {
-      document.querySelectorAll('[data-role="sale"]').forEach(hide);
-      document.querySelectorAll('[data-pane="sale"]').forEach(hide);
-      document.querySelector('#cf-pane-sale')?.querySelectorAll('input, textarea, select, button').forEach(item => item.disabled = true);
+      disablePane('#cf-pane-sale', true);
+    } else {
+      disablePane('#cf-pane-sale', false);
     }
     if (!allowCustoms()) {
-      document.querySelectorAll('[data-role="customs"], [data-pane="customs"], [data-pane="confirm"], [data-pane="accounting"], #cf-declared-open, #cf-truck-open, .cf-truck-mini').forEach(hide);
-      document.querySelector('#cf-pane-customs')?.querySelectorAll('input, textarea, select, button').forEach(item => item.disabled = true);
-      document.querySelector('#cf-pane-confirm')?.querySelectorAll('input, textarea, select, button').forEach(item => item.disabled = true);
-      document.querySelector('[data-pane="sale"]')?.click();
+      disablePane('#cf-pane-customs', true);
+      disablePane('#cf-pane-confirm', true);
+    } else {
+      disablePane('#cf-pane-customs', false);
+      disablePane('#cf-pane-confirm', false);
     }
-    if (currentUser?.role === 'customs_declaration') {
-      document.querySelectorAll('[data-role="warehouse"], [data-role="accounting"], [data-role="truck"], [data-pane="warehouse"], [data-pane="accounting"]').forEach(hide);
-    }
+    // Kế toán is shown for context to every role, but remains read-only outside
+    // the administrator/accounting workflow.
+    disablePane('#cf-pane-accounting', currentUser?.role !== 'admin');
   }
   async function refresh() {
     const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -136,5 +149,8 @@
       alert('Đã cập nhật dữ liệu.');
     } catch (error) { alert(error.message || 'Không thể cập nhật.'); }
   }, true);
+  // The locked UI builds detail forms after a row or tab is clicked.  Reapply
+  // read-only state after that render without observing DOM mutations.
+  document.addEventListener('click', () => setTimeout(applyRoleUi, 0), true);
   refresh().catch(error => console.error('KTT customs session bridge:', error));
 })();
