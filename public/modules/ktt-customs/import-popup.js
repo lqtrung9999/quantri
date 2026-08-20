@@ -47,6 +47,18 @@
 
   const get = selector => modal.querySelector(selector);
   let parsedRows = [];
+  const saveThroughParent = rows => new Promise((resolve, reject) => {
+    const requestId = `warehouse-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const timeout = setTimeout(() => { window.removeEventListener('message', onMessage); reject(new Error('Hệ thống phản hồi quá lâu. Vui lòng thử lại.')); }, 30000);
+    const onMessage = event => {
+      const message = event.data || {};
+      if (event.source !== window.parent || message.type !== 'ktt-customs-import-result' || message.requestId !== requestId) return;
+      clearTimeout(timeout); window.removeEventListener('message', onMessage);
+      if (message.ok) resolve(message.result || {}); else reject(new Error(message.error || 'Không thể lưu dữ liệu.'));
+    };
+    window.addEventListener('message', onMessage);
+    window.parent.postMessage({ type: 'ktt-customs-import-save', requestId, rows }, '*');
+  });
   const errorsFor = row => {
     const errors = [];
     if (!row.operationDate) errors.push('Thiếu ngày');
@@ -104,9 +116,7 @@
     const button = get('#cf-import-save');
     button.disabled = true; button.textContent = 'Đang lưu…';
     try {
-      const response = await fetch('/api/customs-coordination', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bulk_import_warehouse', record: { rows: clean } }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Không thể lưu dữ liệu.');
+      const result = await saveThroughParent(clean);
       mergeIntoWorkList(clean);
       get('#cf-import-note').textContent = `Đã lưu ${result.total} mã hàng (${result.created} mã mới, ${result.updated} mã cập nhật). Các mã đã xuất hiện trong công việc chung.`;
       get('#cf-import-paste').value = ''; parsedRows = []; renderPreview();

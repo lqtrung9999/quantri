@@ -12,5 +12,26 @@
   </head>
   <body>
     <iframe src="/modules/ktt-customs/KTT-dieu-phoi-khai-bao-xep-xe.html" title="Điều phối khai báo và xếp xe"></iframe>
+    <script>
+      (() => {
+        const frame = document.querySelector('iframe');
+        window.addEventListener('message', async event => {
+          const message = event.data || {};
+          if (event.source !== frame.contentWindow || message.type !== 'ktt-customs-import-save') return;
+          const reply = (ok, payload) => event.source.postMessage({ type: 'ktt-customs-import-result', requestId: message.requestId, ok, ...payload }, location.origin);
+          try {
+            const response = await fetch('/api/customs-coordination', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ action: 'bulk_import_warehouse', record: { rows: message.rows || [] } })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) return reply(false, { error: data.error || 'Không thể lưu dữ liệu.' });
+            reply(true, { result: data });
+          } catch (error) { reply(false, { error: error.message || 'Không thể kết nối hệ thống.' }); }
+        });
+      })();
+    </script>
   </body>
 </html>
