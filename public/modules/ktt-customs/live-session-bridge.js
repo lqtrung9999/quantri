@@ -76,6 +76,38 @@
       item.setAttribute('aria-disabled', String(disabled));
     });
   }
+  // Kim Thành Tín quản lý từng mã hàng độc lập, không sử dụng khái niệm lô.
+  // The locked customs UI still retains `lot` internally for backwards
+  // compatibility with old records, so only its presentation is suppressed.
+  function removeLotPresentation() {
+    const lotFilter = document.querySelector('#cf-lot-filter');
+    if (lotFilter) {
+      lotFilter.value = '';
+      lotFilter.style.display = 'none';
+      lotFilter.setAttribute('aria-hidden', 'true');
+      lotFilter.tabIndex = -1;
+    }
+
+    document.querySelectorAll('th').forEach(header => {
+      if (header.textContent.trim().toUpperCase() === 'MÃ HÀNG / LÔ') header.textContent = 'MÃ HÀNG';
+    });
+
+    // The old UI rendered LO-xxxx below each code.  A code is now the sole
+    // tracking identifier, so remove only those directly associated sublines.
+    document.querySelectorAll('.cf-code + .cf-sub').forEach(item => item.remove());
+
+    document.querySelectorAll('label').forEach(label => {
+      const labelText = [...label.childNodes]
+        .filter(node => node.nodeType === Node.TEXT_NODE)
+        .map(node => node.textContent.trim())
+        .join(' ');
+      if (/^Lô hàng$/i.test(labelText)) label.remove();
+    });
+
+    document.querySelectorAll('.cf-export-footer span').forEach(item => {
+      item.textContent = item.textContent.replace(/^Lô hàng:[^·]*·\s*/i, '');
+    });
+  }
   function applyRoleUi() {
     const userBox = document.querySelector('.cf-user');
     const sessionKey = currentUser ? `${currentUser.id}:${currentUser.name}:${currentUser.role}` : '';
@@ -102,6 +134,7 @@
     // Kế toán is shown for context to every role, but remains read-only outside
     // the administrator/accounting workflow.
     disablePane('#cf-pane-accounting', currentUser?.role !== 'admin');
+    removeLotPresentation();
   }
   async function refresh() {
     const response = await fetch(endpoint, { credentials: 'same-origin' });
