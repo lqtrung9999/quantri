@@ -18,6 +18,7 @@ const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toStr
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
 let larkTokenCache = { value: '', expiresAt: 0 };
 let trackingCache = { value: null, expiresAt: 0 };
+let customsWarehouseSyncCache = { expiresAt: 0 };
 const trackingRate = new Map();
 let crmNewSyncState = { configured: false, ok: false, updatedAt: '', error: '' };
 
@@ -158,6 +159,72 @@ function customsVisibleRows(user, rows) {
 function customsHistory(shipment, user, action, fromStatus, toStatus, content) {
   shipment.history = Array.isArray(shipment.history) ? shipment.history : [];
   shipment.history.push({ id: crypto.randomUUID(), actorId: user.id, actorRole: customsActorRole(user), actor: user.name, action, fromStatus, toStatus, content: String(content || '').slice(0, 4000), createdAt: new Date().toISOString() });
+}
+function customsNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const text = String(value ?? '').trim().replace(/\s/g, '');
+  if (!text) return 0;
+  const normalizedValue = text.includes(',') && !text.includes('.') ? text.replace(',', '.') : text.replace(/,/g, '');
+  const output = Number(normalizedValue);
+  return Number.isFinite(output) ? output : 0;
+}
+function customsOperationalDate(value) {
+  const original = String(value ?? '').trim();
+  const yearFirst = original.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  if (yearFirst) return `${Number(yearFirst[3])}/${Number(yearFirst[2])}/${yearFirst[1]}`;
+  const rendered = operationalLarkDate(value);
+  const matched = String(rendered || '').match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!matched) return rendered;
+  const first = `${Number(matched[1])}/${Number(matched[2])}/${matched[3]}`;
+  const second = Number(matched[1]) <= 12 && Number(matched[2]) <= 12 ? `${Number(matched[2])}/${Number(matched[1])}/${matched[3]}` : '';
+  const cutoff = vietnameseDateStamp('18/08/2026');
+  return [first, second].find(item => Number.isFinite(vietnameseDateStamp(item)) && vietnameseDateStamp(item) >= cutoff) || first;
+}
+function customsSourceShipment(table, row) {
+  const date = customsOperationalDate(cell(row, column(table.cols, 'NGÀY/ THÁNG', 'NGÀY/THÁNG', 'NGÀY THÁNG', 'NGÀY')));
+  if (!Number.isFinite(vietnameseDateStamp(date)) || vietnameseDateStamp(date) < vietnameseDateStamp('18/08/2026')) return null;
+  const cargoCode = cell(row, column(table.cols, 'MÃ HÀNG / LÔ', 'MÃ HÀNG/LÔ', 'MÃ HÀNG'));
+  if (!cargoCode) return null;
+  return {
+    operationDate: date,
+    cargoCode,
+    lotCode: cell(row, column(table.cols, 'LÔ HÀNG', 'LÔ')),
+    packageCount: customsNumber(cell(row, column(table.cols, 'SỐ KIỆN'))),
+    productName: cell(row, column(table.cols, 'TÊN HÀNG')),
+    customerCode: cell(row, column(table.cols, 'MÃ KH', 'MÃ KHÁCH HÀNG')),
+    ownerName: cell(row, column(table.cols, 'CHỦ HÀNG', 'TÊN KHÁCH', 'TÊN KH')),
+    saleOwner: cell(row, column(table.cols, 'SALE')),
+    accountant: cell(row, column(table.cols, 'KẾ TOÁN', 'KETOAN')),
+    weightKg: customsNumber(cell(row, column(table.cols, 'KG', 'CÂN (KG)', 'CÂN KG'))),
+    volumeM3: customsNumber(cell(row, column(table.cols, 'M3', 'M³', 'KHỐI (M3)', 'KHỐI M3')))
+  };
+}
+async function syncCustomsWarehouseRows() {
+  if (customsWarehouseSyncCache.expiresAt > Date.now()) return customsRows();
+  const config = larkConfig();
+  if (!config?.sources?.customsWarehouse) return customsRows();
+  const token = await larkToken(config);
+  const source = await resolveLarkSource(config.sources.customsWarehouse, token);
+  const table = tableFromRows(await larkRows(source, token), ['SỐ KIỆN', 'TÊN HÀNG']);
+  if (!table.cols.length) throw new Error('Không tìm thấy hàng tiêu đề Mã hàng, Số kiện, Tên hàng trên nguồn Khai Báo HQ.');
+  const incoming = table.rows.map(row => customsSourceShipment(table, row)).filter(Boolean);
+  const rows = customsRows();
+  let changed = false;
+  for (const sourceRow of incoming) {
+    const shipment = rows.find(item => normalized(item.cargoCode) === normalized(sourceRow.cargoCode));
+    if (shipment) {
+      for (const key of ['operationDate', 'lotCode', 'packageCount', 'productName', 'customerCode', 'ownerName', 'saleOwner', 'accountant', 'weightKg', 'volumeM3']) {
+        if (sourceRow[key] !== undefined && shipment[key] !== sourceRow[key]) { shipment[key] = sourceRow[key]; changed = true; }
+      }
+      if (!shipment.source) { shipment.source = 'lark_customs_warehouse'; changed = true; }
+      continue;
+    }
+    rows.push({ id: crypto.randomUUID(), ...sourceRow, source: 'lark_customs_warehouse', status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: sourceRow.productName ? [{ id: crypto.randomUUID(), description: sourceRow.productName, packageCount: sourceRow.packageCount, images: [] }] : [], customsLines: [], supplementRequests: [], history: [{ id: crypto.randomUUID(), actorId: 'lark-sync', actorRole: 'warehouse_cn', actor: 'Đồng bộ Lark', action: 'import_lark_warehouse', fromStatus: '', toStatus: 'sale_required', content: `Đồng bộ từ nguồn hàng vào kho ngày ${sourceRow.operationDate}.`, createdAt: new Date().toISOString() }] });
+    changed = true;
+  }
+  if (changed) saveCustomsRows(rows);
+  customsWarehouseSyncCache = { expiresAt: Date.now() + 60000 };
+  return rows;
 }
 function numeric(value) { const normalizedValue = String(value ?? '').replace(/[,\s]/g, ''); const output = Number(normalizedValue); return Number.isFinite(output) ? output : 0; }
 function cleanCustomsLine(line, index) {
@@ -687,7 +754,7 @@ http.createServer(async (req, res) => {
       const query = new URL(req.url, 'https://dashboard.local').searchParams;
       const term = String(query.get('reference') || '').trim().toLocaleLowerCase('vi-VN');
       const references = term ? customsReferences().filter(row => `${row.hsCode || row[1] || ''} ${row.goodsName || row[2] || ''}`.toLocaleLowerCase('vi-VN').includes(term)).slice(0, 15) : [];
-      return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, user: profile(user) });
+      return send(res, 200, { rows: customsVisibleRows(user, await syncCustomsWarehouseRows()), references, user: profile(user) });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/customs-coordination' && req.method === 'POST') {
@@ -703,7 +770,7 @@ http.createServer(async (req, res) => {
         const cargoCode = String(record?.cargoCode || '').trim().slice(0, 80), ownerName = String(record?.ownerName || '').trim().slice(0, 150);
         if (!cargoCode || !ownerName) return send(res, 400, { error: 'Vui lòng nhập Mã hàng và Chủ hàng.' });
         if (rows.some(row => row.cargoCode === cargoCode)) return send(res, 409, { error: 'Mã hàng đã tồn tại.' });
-        const shipment = { id: crypto.randomUUID(), cargoCode, lotCode: String(record?.lotCode || '').trim().slice(0, 80), customerCode: String(record?.customerCode || '').trim().slice(0, 80), ownerName, packageCount: numeric(record?.packageCount), weightKg: numeric(record?.weightKg), volumeM3: numeric(record?.volumeM3), saleOwner: String(record?.saleOwner || '').trim().slice(0, 150), status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: [], customsLines: [], supplementRequests: [], history: [] };
+        const shipment = { id: crypto.randomUUID(), operationDate: String(record?.operationDate || '').trim().slice(0, 20), cargoCode, lotCode: String(record?.lotCode || '').trim().slice(0, 80), customerCode: String(record?.customerCode || '').trim().slice(0, 80), ownerName, packageCount: numeric(record?.packageCount), weightKg: numeric(record?.weightKg), volumeM3: numeric(record?.volumeM3), saleOwner: String(record?.saleOwner || '').trim().slice(0, 150), accountant: String(record?.accountant || '').trim().slice(0, 120), status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: [], customsLines: [], supplementRequests: [], history: [] };
         customsHistory(shipment, user, 'create_shipment', '', 'sale_required', 'Kho TQ tạo mã hàng và chuyển Sale bổ sung thông tin.'); rows.unshift(shipment); saveCustomsRows(rows); return send(res, 201, { record: shipment });
       }
       const shipment = rows.find(row => row.id === id);
@@ -755,7 +822,7 @@ http.createServer(async (req, res) => {
   if (pathname === '/customs-coordination.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
-    return fs.readFile(path.join(publicDir, 'customs-coordination.html'), (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+    return fs.readFile(path.join(publicDir, 'customs-coordination.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', '<script src="/customs-coordination-columns.js"></script></body>'), 'text/html; charset=utf-8'));
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
