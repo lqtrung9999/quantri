@@ -202,9 +202,10 @@ function customsSourceShipment(table, row) {
 async function syncCustomsWarehouseRows() {
   if (customsWarehouseSyncCache.expiresAt > Date.now()) return customsRows();
   const config = larkConfig();
-  if (!config?.sources?.customsWarehouse) return customsRows();
+  if (!config) return customsRows();
+  const sourceConfig = config.sources.customsWarehouse || { label: 'Hàng vào kho TQ — Khai Báo HQ', spreadsheetToken: 'HNw4sIigxhLftjtECULjK6d6pOY', sheetId: 'bF1tJU', maxRows: 15000 };
   const token = await larkToken(config);
-  const source = await resolveLarkSource(config.sources.customsWarehouse, token);
+  const source = await resolveLarkSource(sourceConfig, token);
   const table = tableFromRows(await larkRows(source, token), ['SỐ KIỆN', 'TÊN HÀNG']);
   if (!table.cols.length) throw new Error('Không tìm thấy hàng tiêu đề Mã hàng, Số kiện, Tên hàng trên nguồn Khai Báo HQ.');
   const incoming = table.rows.map(row => customsSourceShipment(table, row)).filter(Boolean);
