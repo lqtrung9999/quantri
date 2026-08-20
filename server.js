@@ -887,6 +887,8 @@ http.createServer(async (req, res) => {
     return fs.readFile(path.join(publicDir, 'modules', 'ktt-customs', 'KTT-dieu-phoi-khai-bao-xep-xe.html'), (error, content) => {
       if (error) return send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8');
       if (canImportCustomsWarehouse(user)) {
+        const importPopupScript = fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
         content = content.toString('utf8')
           .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
           .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
@@ -894,7 +896,7 @@ http.createServer(async (req, res) => {
           .replace('&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;', '&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;&lt;button id=&quot;cf-import-open&quot;&gt;&lt;span class=&quot;ico&quot;&gt;▤&lt;/span&gt;&lt;span&gt;Nhập kho TQ&lt;/span&gt;&lt;/button&gt;')
           .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
           .replace(';render();\n    })();', ';window.KTT_CUSTOMS_RENDER=render;render();\n    })();')
-          .replace('&lt;/body&gt;', '&lt;script src=&quot;/modules/ktt-customs/import-popup.js&quot;&gt;&lt;/script&gt;&lt;/body&gt;');
+          .replace('&lt;/body&gt;', `&lt;script&gt;${importPopupScript}&lt;/script&gt;&lt;/body&gt;`);
       }
       return sendFrameAsset(res, 200, content);
     });
