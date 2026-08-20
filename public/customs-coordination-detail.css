@@ -1,0 +1,92 @@
+#detailModal .dialog {
+  width: min(1390px, 96vw);
+  max-width: 1390px;
+  max-height: 94vh;
+  border-radius: 22px;
+  background: #fff;
+}
+
+#detailModal .dialog-head {
+  min-height: 108px;
+  padding: 0 38px;
+  font-size: 28px;
+  font-weight: 750;
+  color: #1d2939;
+  border-bottom: 1px solid #e3e8f0;
+}
+
+#detailModal .workflow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  padding: 28px 38px;
+  border-bottom: 1px solid #e3e8f0;
+}
+
+#detailModal .workflow .step {
+  display: flex;
+  align-items: flex-start;
+  min-height: 118px;
+  padding: 24px 18px;
+  border-radius: 17px;
+  background: #f0f2f6;
+  color: #71809b;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+#detailModal .workflow .step.done { background: #e7f7ef; color: #16885d; }
+#detailModal .workflow .step.current { background: #fff0e5; color: #ff6d1f; font-weight: 750; }
+
+#shipmentMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 32px 38px 24px;
+}
+
+.shipment-meta-card {
+  min-height: 132px;
+  padding: 28px 20px;
+  border-radius: 16px;
+  background: #f6f8fc;
+  color: #7a89a3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+}
+
+.shipment-meta-card span { font-size: 17px; }
+.shipment-meta-card b { color: #1d2939; font-size: 20px; font-weight: 650; }
+
+#detailModal .tabs {
+  padding: 0 38px;
+  gap: 30px;
+  border-bottom: 1px solid #dce3ee;
+}
+
+#detailModal .tabs .tab {
+  padding: 20px 0 22px;
+  background: transparent;
+  color: #71809b;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+#detailModal .tabs .tab.active { color: #ff6d1f; border-bottom-color: #ff6d1f; }
+#detailModal .pane { padding: 32px 38px; }
+
+@media (max-width: 800px) {
+  #detailModal .dialog { width: 100vw; max-height: 100vh; border-radius: 0; }
+  #detailModal .dialog-head { min-height: 76px; padding: 0 20px; font-size: 22px; }
+  #detailModal .workflow { grid-template-columns: 1fr; padding: 16px 20px; }
+  #detailModal .workflow .step { min-height: auto; padding: 13px 16px; }
+  #shipmentMeta { grid-template-columns: 1fr 1fr; padding: 20px; }
+  #detailModal .tabs { overflow-x: auto; padding: 0 20px; gap: 22px; }
+  #detailModal .pane { padding: 24px 20px; }
+}
