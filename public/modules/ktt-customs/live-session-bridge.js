@@ -136,7 +136,5 @@
       alert('Đã cập nhật dữ liệu.');
     } catch (error) { alert(error.message || 'Không thể cập nhật.'); }
   }, true);
-  const observer = new MutationObserver(() => applyRoleUi());
-  observer.observe(document.documentElement, { subtree: true, childList: true });
   refresh().catch(error => console.error('KTT customs session bridge:', error));
 })();
