@@ -918,7 +918,7 @@ http.createServer(async (req, res) => {
         // the same-origin API so its view and actions use the real session.
         .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
         .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
-        .replace('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
+        .replaceAll('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
         .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
         .replace(';render();\n    })();', ';window.KTT_CUSTOMS_RENDER=render;render();\n    })();')
         .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;/body&gt;`);
