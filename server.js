@@ -403,7 +403,9 @@ async function debtData(report = 'cn') {
     const room = column(table.cols, 'PHÒNG', 'PHONG');
     const customer = column(table.cols, 'CHỦ HÀNG', 'TÊN KHÁCH');
     const opening = column(table.cols, 'TỒN ĐẦU NĂM');
-    const debt = column(table.cols, 'CÔNG NỢ 2026', 'CÔNG NỢ 2025');
+    // CN uses "CÔNG NỢ 2026" while CK uses "CÔNG NỢ PHÁT SINH".
+    // Keep the exact CK header first so a generic debt/balance column is never selected instead.
+    const debt = column(table.cols, 'CÔNG NỢ PHÁT SINH', 'CÔNG NỢ 2026', 'CÔNG NỢ 2025');
     const paid = column(table.cols, 'ĐÃ THANH TOÁN');
     const balance = column(table.cols, 'CÔNG NỢ TỒN', 'CÔNG NỢ', 'CÒN NỢ TỒN');
     const summaryFormula = String((formulaRows[headerIndex + 1] || [])[balance] || '');
