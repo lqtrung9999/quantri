@@ -7,9 +7,9 @@
 }
 
 #detailModal .dialog-head {
-  min-height: 108px;
-  padding: 0 38px;
-  font-size: 28px;
+  min-height: 78px;
+  padding: 0 34px;
+  font-size: 24px;
   font-weight: 750;
   color: #1d2939;
   border-bottom: 1px solid #e3e8f0;
@@ -18,20 +18,20 @@
 #detailModal .workflow {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-  padding: 28px 38px;
+  gap: 10px;
+  padding: 18px 34px;
   border-bottom: 1px solid #e3e8f0;
 }
 
 #detailModal .workflow .step {
   display: flex;
   align-items: flex-start;
-  min-height: 118px;
-  padding: 24px 18px;
-  border-radius: 17px;
+  min-height: 72px;
+  padding: 14px 16px;
+  border-radius: 14px;
   background: #f0f2f6;
   color: #71809b;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.55;
 }
@@ -42,39 +42,39 @@
 #shipmentMeta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  padding: 32px 38px 24px;
+  gap: 14px;
+  padding: 22px 34px 16px;
 }
 
 .shipment-meta-card {
-  min-height: 132px;
-  padding: 28px 20px;
-  border-radius: 16px;
+  min-height: 98px;
+  padding: 18px;
+  border-radius: 14px;
   background: #f6f8fc;
   color: #7a89a3;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 18px;
+  gap: 12px;
 }
 
-.shipment-meta-card span { font-size: 17px; }
-.shipment-meta-card b { color: #1d2939; font-size: 20px; font-weight: 650; }
+.shipment-meta-card span { font-size: 15px; }
+.shipment-meta-card b { color: #1d2939; font-size: 17px; font-weight: 650; }
 
 #detailModal .tabs {
-  padding: 0 38px;
-  gap: 30px;
+  padding: 0 34px;
+  gap: 26px;
   border-bottom: 1px solid #dce3ee;
 }
 
 #detailModal .tabs .tab {
-  padding: 20px 0 22px;
+  padding: 15px 0 16px;
   background: transparent;
   color: #71809b;
   border: 0;
   border-bottom: 3px solid transparent;
   border-radius: 0;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
 }
 
