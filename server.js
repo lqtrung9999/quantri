@@ -887,7 +887,7 @@ http.createServer(async (req, res) => {
     return fs.readFile(path.join(publicDir, 'modules', 'ktt-customs', 'KTT-dieu-phoi-khai-bao-xep-xe.html'), (error, content) => {
       if (error) return send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8');
       if (canImportCustomsWarehouse(user)) {
-        content = content
+        content = content.toString('utf8')
           .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
           .replace('&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;', '&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;&lt;button onclick=&quot;location.href=&#x27;/warehouse-cn-import.html&#x27;&quot;&gt;&lt;span class=&quot;ico&quot;&gt;▤&lt;/span&gt;&lt;span&gt;Nhập kho TQ&lt;/span&gt;&lt;/button&gt;');
       }
