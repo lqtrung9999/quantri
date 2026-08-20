@@ -5,6 +5,7 @@
   "description": "Báo cáo quản trị nội bộ Kim Thành Tín",
   "scripts": {
     "start": "node server.js",
-    "add-user": "node create-user.js"
+    "add-user": "node create-user.js",
+    "test:customs": "node test-customs-coordination.js"
   }
 }

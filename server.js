@@ -10,6 +10,8 @@ const crmNewDataFile = path.join(__dirname, 'crm-new-data.json');
 const crmNewSyncConfigFile = path.join(__dirname, 'crm-new-sync-config.json');
 const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json');
 const customerManagementDataFile = path.join(__dirname, 'customer-management-data.json');
+const customsDataFile = path.join(__dirname, 'customs-coordination-data.json');
+const customsReferenceFile = path.join(__dirname, 'customs-declared-goods.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -127,6 +129,41 @@ function saveCustomerManagementRows(rows) {
 }
 function canUseCustomerManagement(user) { return user?.role === 'admin'; }
 function canUseAccountingDemo(user) { return user && ['admin', 'accountant'].includes(user.role); }
+const customsRoles = new Set(['admin', 'accountant', 'sale', 'warehouse_cn', 'customs_declaration', 'manager', 'truck_planner']);
+function canUseCustoms(user) { return Boolean(user && customsRoles.has(user.role)); }
+function customsActorRole(user) {
+  if (['admin', 'manager'].includes(user?.role)) return 'manager';
+  if (user?.role === 'accountant') return 'accounting';
+  return user?.role || '';
+}
+function customsRows() {
+  if (!fs.existsSync(customsDataFile)) return [];
+  try { const rows = JSON.parse(fs.readFileSync(customsDataFile, 'utf8')); return Array.isArray(rows) ? rows : []; }
+  catch { throw new Error('Dữ liệu điều phối khai báo không hợp lệ.'); }
+}
+function saveCustomsRows(rows) {
+  const temporary = `${customsDataFile}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, customsDataFile);
+}
+function customsReferences() {
+  if (!fs.existsSync(customsReferenceFile)) return [];
+  try { const rows = JSON.parse(fs.readFileSync(customsReferenceFile, 'utf8')); return Array.isArray(rows) ? rows : (Array.isArray(rows.records) ? rows.records : []); }
+  catch { return []; }
+}
+function customsVisibleRows(user, rows) {
+  if (user.role !== 'sale') return rows;
+  return rows.filter(row => sameSale(row.saleOwner, user.sale) || sameSale(row.saleOwner, user.name));
+}
+function customsHistory(shipment, user, action, fromStatus, toStatus, content) {
+  shipment.history = Array.isArray(shipment.history) ? shipment.history : [];
+  shipment.history.push({ id: crypto.randomUUID(), actorId: user.id, actorRole: customsActorRole(user), actor: user.name, action, fromStatus, toStatus, content: String(content || '').slice(0, 4000), createdAt: new Date().toISOString() });
+}
+function numeric(value) { const normalizedValue = String(value ?? '').replace(/[,\s]/g, ''); const output = Number(normalizedValue); return Number.isFinite(output) ? output : 0; }
+function cleanCustomsLine(line, index) {
+  const quantity1 = numeric(line?.quantity1), declaredPriceUsd = numeric(line?.declaredPriceUsd), description = String(line?.goodsDescription || '').trim().slice(0, 3000);
+  return { id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, englishName: String(line?.englishName || '').trim().slice(0, 500), goodsDescription: description, note: String(line?.note || '').trim().slice(0, 1000), invoicePriceBeforeTax: String(line?.invoicePriceBeforeTax || '').trim().slice(0, 100), hsCode: String(line?.hsCode || '').trim().slice(0, 30), quantity1, unit1: String(line?.unit1 || '').trim().slice(0, 30), quantity2: numeric(line?.quantity2), unit2: String(line?.unit2 || '').trim().slice(0, 30), declaredPriceUsd, packageCount: numeric(line?.packageCount), netWeightKg: numeric(line?.netWeightKg), grossWeightKg: numeric(line?.grossWeightKg), totalUsd: quantity1 * declaredPriceUsd, importTaxRate: numeric(line?.importTaxRate), importTaxAmount: numeric(line?.importTaxAmount), vatRate: numeric(line?.vatRate), totalTaxVnd: numeric(line?.totalTaxVnd), characterCount: description.length };
+}
 function crmNewToday() {
   const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts().filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
@@ -644,6 +681,62 @@ http.createServer(async (req, res) => {
       return send(res, 400, { error: 'Thao tác quản lý khách hàng không hợp lệ.' });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu khách hàng.' }); }
   }
+  if (pathname === '/api/customs-coordination' && req.method === 'GET') {
+    if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.' });
+    try {
+      const query = new URL(req.url, 'https://dashboard.local').searchParams;
+      const term = String(query.get('reference') || '').trim().toLocaleLowerCase('vi-VN');
+      const references = term ? customsReferences().filter(row => `${row.hsCode || row[1] || ''} ${row.goodsName || row[2] || ''}`.toLocaleLowerCase('vi-VN').includes(term)).slice(0, 15) : [];
+      return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, user: profile(user) });
+    } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
+  }
+  if (pathname === '/api/customs-coordination' && req.method === 'POST') {
+    if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.' });
+    try {
+      const { action, id, record } = await readJson(req), rows = customsRows();
+      const privileged = ['admin', 'manager'].includes(user.role);
+      const canWarehouse = privileged || user.role === 'warehouse_cn';
+      const canCustoms = privileged || user.role === 'customs_declaration';
+      const canAccounting = privileged || user.role === 'accountant';
+      if (action === 'create') {
+        if (!canWarehouse) return send(res, 403, { error: 'Chỉ Kho TQ hoặc Quản lý được tạo mã hàng.' });
+        const cargoCode = String(record?.cargoCode || '').trim().slice(0, 80), ownerName = String(record?.ownerName || '').trim().slice(0, 150);
+        if (!cargoCode || !ownerName) return send(res, 400, { error: 'Vui lòng nhập Mã hàng và Chủ hàng.' });
+        if (rows.some(row => row.cargoCode === cargoCode)) return send(res, 409, { error: 'Mã hàng đã tồn tại.' });
+        const shipment = { id: crypto.randomUUID(), cargoCode, lotCode: String(record?.lotCode || '').trim().slice(0, 80), customerCode: String(record?.customerCode || '').trim().slice(0, 80), ownerName, packageCount: numeric(record?.packageCount), weightKg: numeric(record?.weightKg), volumeM3: numeric(record?.volumeM3), saleOwner: String(record?.saleOwner || '').trim().slice(0, 150), status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: [], customsLines: [], supplementRequests: [], history: [] };
+        customsHistory(shipment, user, 'create_shipment', '', 'sale_required', 'Kho TQ tạo mã hàng và chuyển Sale bổ sung thông tin.'); rows.unshift(shipment); saveCustomsRows(rows); return send(res, 201, { record: shipment });
+      }
+      const shipment = rows.find(row => row.id === id);
+      if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng.' });
+      const owns = sameSale(shipment.saleOwner, user.sale) || sameSale(shipment.saleOwner, user.name);
+      if (action === 'save_sale') {
+        if (!(privileged || (user.role === 'sale' && owns))) return send(res, 403, { error: 'Chỉ Sale phụ trách được cập nhật thông tin hàng.' });
+        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 80).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 3000), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 2000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
+        if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
+        const from = shipment.status; shipment.saleProductLines = productLines; shipment.status = 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'sale_submit', from, shipment.status, `Sale gửi ${productLines.length} dòng sản phẩm cho bộ phận khai báo.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'request_supplement') {
+        if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được yêu cầu bổ sung.' });
+        const content = String(record?.content || '').trim(); if (!content) return send(res, 400, { error: 'Vui lòng ghi nội dung cần Sale bổ sung.' });
+        const from = shipment.status; shipment.supplementRequests = Array.isArray(shipment.supplementRequests) ? shipment.supplementRequests : []; shipment.supplementRequests.push({ id: crypto.randomUUID(), shipmentId: shipment.id, requestedBy: user.id, content: content.slice(0, 4000), status: 'open', createdAt: new Date().toISOString() }); shipment.status = 'sale_required'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'request_supplement', from, shipment.status, content); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'save_customs') {
+        if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được lên list khai báo.' });
+        const lines = Array.isArray(record?.customsLines) ? record.customsLines.slice(0, 80).map(cleanCustomsLine).filter(line => line.goodsDescription || line.hsCode) : [];
+        if (!lines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng khai báo.' });
+        const from = shipment.status; shipment.customsLines = lines; shipment.status = 'customer_confirmation'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'customs_submit', from, shipment.status, `Khai báo hoàn tất ${lines.length} dòng, gửi Sale xác nhận khách.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'customer_approved' || action === 'customer_requests_edit') {
+        if (!(privileged || (user.role === 'sale' && owns))) return send(res, 403, { error: 'Chỉ Sale phụ trách được xác nhận phản hồi khách.' });
+        const from = shipment.status, approved = action === 'customer_approved'; shipment.status = approved ? 'ready_for_loading' : 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, action, from, shipment.status, approved ? 'Khách xác nhận toàn bộ; sẵn sàng xếp xe.' : String(record?.content || 'Khách yêu cầu chỉnh sửa thông tin khai báo.').slice(0, 4000)); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'document_status') {
+        if (!canAccounting) return send(res, 403, { error: 'Chỉ Kế toán được cập nhật chứng từ.' });
+        shipment.documentStatus = String(record?.documentStatus || '').slice(0, 100); shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'document_check', shipment.status, shipment.status, `Kế toán cập nhật chứng từ: ${shipment.documentStatus}`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      return send(res, 400, { error: 'Thao tác Khai Báo HQ không hợp lệ.' });
+    } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu Khai Báo HQ.' }); }
+  }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
@@ -658,6 +751,11 @@ http.createServer(async (req, res) => {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseCustomerManagement(user)) return send(res, 403, 'Giai đoạn này chỉ Admin được sử dụng Quản lý Khách hàng.', 'text/plain; charset=utf-8');
     return fs.readFile(path.join(publicDir, 'customer-management.html'), (error, content) => error ? send(res, 500, 'Không thể tải Quản lý Khách hàng.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+  }
+  if (pathname === '/customs-coordination.html') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(publicDir, 'customs-coordination.html'), (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
