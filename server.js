@@ -26,6 +26,10 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
   res.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body));
 }
+function sendFrameAsset(res, status, body, type = 'text/html; charset=utf-8') {
+  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN' });
+  res.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body));
+}
 
 function users() { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); }
 function crmConfig() {
@@ -823,7 +827,12 @@ http.createServer(async (req, res) => {
   if (pathname === '/customs-coordination.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
-    return fs.readFile(path.join(publicDir, 'customs-coordination.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', '<link rel="stylesheet" href="/customs-coordination-detail.css"><script src="/customs-coordination-columns.js"></script></body>'), 'text/html; charset=utf-8'));
+    return fs.readFile(path.join(publicDir, 'customs-coordination.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+  }
+  if (pathname === '/modules/ktt-customs/KTT-dieu-phoi-khai-bao-xep-xe.html') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(publicDir, 'modules', 'ktt-customs', 'KTT-dieu-phoi-khai-bao-xep-xe.html'), (error, content) => error ? send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8') : sendFrameAsset(res, 200, content));
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
