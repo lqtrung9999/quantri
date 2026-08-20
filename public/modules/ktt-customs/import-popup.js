@@ -101,7 +101,9 @@
     records.forEach(record => {
       const code = String(record.cargoCode || '').trim();
       if (!code) return;
-      const item = { code, lot: '', packs: number(record.packageCount), name: record.productName || 'Chưa cập nhật', customer: record.customerCode || '—', owner: record.ownerName || '—', sale: record.saleOwner || 'Chưa phân công', accounting: record.accountant || '—', kg: number(record.weightKg), m3: number(record.volumeM3), photos: 0, docs: 'Chưa kiểm tra', status: 'sale', saleInfo: { productLines: [] }, customsLines: [], history: [[new Date().toLocaleDateString('vi-VN'), 'Kho TQ', 'Đã nhập từ bảng dán', 'Chờ Sale bổ sung']] };
+      // Every code imported by Kho TQ starts with an editable product line.  This
+      // lets Sale continue immediately instead of landing on an empty table.
+      const item = { code, lot: '', packs: number(record.packageCount), name: record.productName || 'Chưa cập nhật', customer: record.customerCode || '—', owner: record.ownerName || '—', sale: record.saleOwner || 'Chưa phân công', accounting: record.accountant || '—', kg: number(record.weightKg), m3: number(record.volumeM3), photos: 0, docs: 'Chưa kiểm tra', status: 'sale', saleInfo: { product: record.productName || '', usage: '', material: '', model: '', qty: '', unit: 'PCE', invoicePrice: '', note: '', productLines: [{ description: record.productName || '', packs: String(record.packageCount ?? ''), productsPerPack: '', size: '', qty: '', unit: 'PCE', invoicePrice: '', note: '', image: null }] }, customsLines: [], history: [[new Date().toLocaleDateString('vi-VN'), 'Kho TQ', 'Đã nhập từ bảng dán', 'Chờ Sale bổ sung']] };
       const index = data.findIndex(row => String(row.code).trim().toLocaleLowerCase('vi-VN') === code.toLocaleLowerCase('vi-VN'));
       if (index >= 0) Object.assign(data[index], item); else data.unshift(item);
     });

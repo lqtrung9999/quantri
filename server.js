@@ -225,7 +225,7 @@ async function syncCustomsWarehouseRows() {
       if (!shipment.source) { shipment.source = 'lark_customs_warehouse'; changed = true; }
       continue;
     }
-    rows.push({ id: crypto.randomUUID(), ...sourceRow, source: 'lark_customs_warehouse', status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: sourceRow.productName ? [{ id: crypto.randomUUID(), description: sourceRow.productName, packageCount: sourceRow.packageCount, images: [] }] : [], customsLines: [], supplementRequests: [], history: [{ id: crypto.randomUUID(), actorId: 'lark-sync', actorRole: 'warehouse_cn', actor: 'Đồng bộ Lark', action: 'import_lark_warehouse', fromStatus: '', toStatus: 'sale_required', content: `Đồng bộ từ nguồn hàng vào kho ngày ${sourceRow.operationDate}.`, createdAt: new Date().toISOString() }] });
+    rows.push({ id: crypto.randomUUID(), ...sourceRow, source: 'lark_customs_warehouse', status: 'sale_required', documentStatus: 'Chưa kiểm tra', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), saleProductLines: [{ id: crypto.randomUUID(), lineNumber: 1, description: sourceRow.productName || '', packageCount: sourceRow.packageCount, productsPerPackage: '', productSize: '', declarationQuantity: 0, declarationUnit: 'PCE', invoicePriceBeforeVat: '', note: '', images: [] }], customsLines: [], supplementRequests: [], history: [{ id: crypto.randomUUID(), actorId: 'lark-sync', actorRole: 'warehouse_cn', actor: 'Đồng bộ Lark', action: 'import_lark_warehouse', fromStatus: '', toStatus: 'sale_required', content: `Đồng bộ từ nguồn hàng vào kho ngày ${sourceRow.operationDate}.`, createdAt: new Date().toISOString() }] });
     changed = true;
   }
   if (changed) saveCustomsRows(rows);
@@ -807,7 +807,7 @@ http.createServer(async (req, res) => {
           const createdShipment = {
             id: crypto.randomUUID(), ...sourceRow, lotCode: '', source: 'warehouse_paste', status: 'sale_required', documentStatus: 'Chưa kiểm tra',
             createdAt: importedAt, updatedAt: importedAt,
-            saleProductLines: sourceRow.productName ? [{ id: crypto.randomUUID(), description: sourceRow.productName, packageCount: sourceRow.packageCount, images: [] }] : [],
+            saleProductLines: [{ id: crypto.randomUUID(), lineNumber: 1, description: sourceRow.productName || '', packageCount: sourceRow.packageCount, productsPerPackage: '', productSize: '', declarationQuantity: 0, declarationUnit: 'PCE', invoicePriceBeforeVat: '', note: '', images: [] }],
             customsLines: [], supplementRequests: [], history: []
           };
           customsHistory(createdShipment, user, 'import_warehouse_paste', '', 'sale_required', `Kho TQ nhập từ bảng dán ngày ${sourceRow.operationDate}.`);
