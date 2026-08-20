@@ -3,9 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((list, value, index, all) => value.startsWith('--') ? [...list, [value.slice(2), all[index + 1]]] : list, []));
+const roles = ['admin', 'accountant', 'sale', 'warehouse_cn', 'customs_declaration', 'manager', 'truck_planner'];
 const required = ['username', 'name', 'role', 'password'];
-if (required.some(key => !args[key]) || !['admin', 'accountant', 'sale'].includes(args.role) || (args.role === 'sale' && !args.sale)) {
-  console.error('Dùng: npm run add-user -- --username <tên> --name "Họ tên" --role admin|accountant|sale --password "Mật khẩu" [--sale "Tên Sale đúng như Google Sheet"]');
+if (required.some(key => !args[key]) || !roles.includes(args.role) || (args.role === 'sale' && !args.sale)) {
+  console.error('Dùng: npm run add-user -- --username <tên> --name "Họ tên" --role admin|accountant|sale|warehouse_cn|customs_declaration|manager|truck_planner --password "Mật khẩu" [--sale "Tên Sale đúng như Google Sheet"]');
   process.exit(1);
 }
 const file = path.join(__dirname, 'users.json');
