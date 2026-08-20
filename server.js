@@ -5,6 +5,7 @@ const path = require('path');
 
 const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
+const customsStaffSeedFile = path.join(__dirname, 'customs-staff-seed.json');
 const crmConfigFile = path.join(__dirname, 'crm-config.json');
 const crmNewDataFile = path.join(__dirname, 'crm-new-data.json');
 const crmNewSyncConfigFile = path.join(__dirname, 'crm-new-sync-config.json');
@@ -31,7 +32,20 @@ function sendFrameAsset(res, status, body, type = 'text/html; charset=utf-8') {
   res.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body));
 }
 
-function users() { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); }
+function users() {
+  const list = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+  if (!fs.existsSync(customsStaffSeedFile)) return list;
+  try {
+    const seeds = JSON.parse(fs.readFileSync(customsStaffSeedFile, 'utf8'));
+    let changed = false;
+    for (const seed of Array.isArray(seeds) ? seeds : []) {
+      if (!seed?.username || list.some(account => String(account.username).toLowerCase() === String(seed.username).toLowerCase())) continue;
+      list.push(seed); changed = true;
+    }
+    if (changed) saveUsers(list);
+  } catch { /* A malformed optional seed must never block login. */ }
+  return list;
+}
 function crmConfig() {
   if (!fs.existsSync(crmConfigFile)) throw new Error('CRM chưa được cấu hình.');
   const config = JSON.parse(fs.readFileSync(crmConfigFile, 'utf8'));
@@ -158,8 +172,10 @@ function customsReferences() {
   catch { return []; }
 }
 function customsVisibleRows(user, rows) {
-  if (user.role !== 'sale') return rows;
-  return rows.filter(row => sameSale(row.saleOwner, user.sale) || sameSale(row.saleOwner, user.name));
+  if (user.role === 'sale') return rows.filter(row => sameSale(row.saleOwner, user.sale) || sameSale(row.saleOwner, user.name));
+  const team = user.role === 'manager' ? leaderTeam(user) : null;
+  if (team) return rows.filter(row => normalized(row.saleTeam) === normalized(team) || normalized(row.saleOwner).startsWith(normalized(team)));
+  return rows;
 }
 function customsHistory(shipment, user, action, fromStatus, toStatus, content) {
   shipment.history = Array.isArray(shipment.history) ? shipment.history : [];
@@ -248,7 +264,12 @@ function crmNewVisibleRows(user, rows) {
 }
 function hash(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
 function verifyPassword(password, stored) {
-  const [, salt, expected] = stored.split('$');
+  const [algorithm, salt, expected] = String(stored || '').split('$');
+  if (algorithm === 'sha256') {
+    const actual = crypto.createHash('sha256').update(password).digest('hex');
+    return expected && crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+  }
+  if (algorithm !== 'scrypt' || !salt || !expected) return false;
   const actual = hash(password, salt);
   return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
 }
@@ -767,8 +788,9 @@ http.createServer(async (req, res) => {
     if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.' });
     try {
       const { action, id, record } = await readJson(req), rows = customsRows();
-      const privileged = ['admin', 'manager'].includes(user.role);
-      const canWarehouse = privileged || user.role === 'warehouse_cn';
+      const privileged = user.role === 'admin';
+      const team = user.role === 'manager' ? leaderTeam(user) : null;
+      const canWarehouse = privileged || user.role === 'manager' || user.role === 'warehouse_cn';
       const canCustoms = privileged || user.role === 'customs_declaration';
       const canAccounting = privileged || user.role === 'accountant';
       if (action === 'bulk_import_warehouse') {
@@ -827,9 +849,10 @@ http.createServer(async (req, res) => {
       }
       const shipment = rows.find(row => row.id === id);
       if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng.' });
+      const managesShipment = Boolean(team && (normalized(shipment.saleTeam) === normalized(team) || normalized(shipment.saleOwner).startsWith(normalized(team))));
       const owns = sameSale(shipment.saleOwner, user.sale) || sameSale(shipment.saleOwner, user.name);
       if (action === 'save_sale') {
-        if (!(privileged || (user.role === 'sale' && owns))) return send(res, 403, { error: 'Chỉ Sale phụ trách được cập nhật thông tin hàng.' });
+        if (!(privileged || managesShipment || (user.role === 'sale' && owns))) return send(res, 403, { error: 'Chỉ Sale phụ trách hoặc Trưởng phòng trực tiếp được cập nhật thông tin hàng.' });
         const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 80).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 3000), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 2000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
         if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
         const from = shipment.status; shipment.saleProductLines = productLines; shipment.status = 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'sale_submit', from, shipment.status, `Sale gửi ${productLines.length} dòng sản phẩm cho bộ phận khai báo.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
@@ -843,11 +866,11 @@ http.createServer(async (req, res) => {
         if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được lên list khai báo.' });
         const lines = Array.isArray(record?.customsLines) ? record.customsLines.slice(0, 80).map(cleanCustomsLine).filter(line => line.goodsDescription || line.hsCode) : [];
         if (!lines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng khai báo.' });
-        const from = shipment.status; shipment.customsLines = lines; shipment.status = 'customer_confirmation'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'customs_submit', from, shipment.status, `Khai báo hoàn tất ${lines.length} dòng, gửi Sale xác nhận khách.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+        const from = shipment.status; shipment.customsLines = lines; shipment.status = 'customer_confirmation'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'customs_submit', from, shipment.status, `Khai báo hoàn tất ${lines.length} dòng, chuyển bước Khai báo xác nhận.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
       if (action === 'customer_approved' || action === 'customer_requests_edit') {
-        if (!(privileged || (user.role === 'sale' && owns))) return send(res, 403, { error: 'Chỉ Sale phụ trách được xác nhận phản hồi khách.' });
-        const from = shipment.status, approved = action === 'customer_approved'; shipment.status = approved ? 'ready_for_loading' : 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, action, from, shipment.status, approved ? 'Khách xác nhận toàn bộ; sẵn sàng xếp xe.' : String(record?.content || 'Khách yêu cầu chỉnh sửa thông tin khai báo.').slice(0, 4000)); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+        if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được xác nhận khách.' });
+        const from = shipment.status, approved = action === 'customer_approved'; shipment.status = approved ? 'ready_for_loading' : 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, action, from, shipment.status, approved ? 'Khai báo xác nhận khách; sẵn sàng xếp xe.' : String(record?.content || 'Khai báo ghi nhận yêu cầu chỉnh sửa thông tin.').slice(0, 4000)); saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
       if (action === 'document_status') {
         if (!canAccounting) return send(res, 403, { error: 'Chỉ Kế toán được cập nhật chứng từ.' });
