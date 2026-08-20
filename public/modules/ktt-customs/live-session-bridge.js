@@ -81,7 +81,7 @@
       document.querySelector('#cf-pane-sale')?.querySelectorAll('input, textarea, select, button').forEach(item => item.disabled = true);
     }
     if (!allowCustoms()) {
-      document.querySelectorAll('[data-role="customs"], [data-pane="customs"], [data-pane="confirm"], [data-pane="accounting"]').forEach(hide);
+      document.querySelectorAll('[data-role="customs"], [data-pane="customs"], [data-pane="confirm"], [data-pane="accounting"], #cf-declared-open, #cf-truck-open, .cf-truck-mini').forEach(hide);
       document.querySelector('#cf-pane-customs')?.querySelectorAll('input, textarea, select, button').forEach(item => item.disabled = true);
       document.querySelector('#cf-pane-confirm')?.querySelectorAll('input, textarea, select, button').forEach(item => item.disabled = true);
       document.querySelector('[data-pane="sale"]')?.click();
