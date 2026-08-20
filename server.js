@@ -172,9 +172,11 @@ function customsReferences() {
   catch { return []; }
 }
 function customsVisibleRows(user, rows) {
-  if (user.role === 'sale') return rows.filter(row => sameSale(row.saleOwner, user.sale) || sameSale(row.saleOwner, user.name));
-  const team = user.role === 'manager' ? leaderTeam(user) : null;
+  // Trưởng phòng vẫn có role "sale" trong hệ thống chung, vì vậy luôn nhận
+  // diện phòng trước khi áp dụng phạm vi cá nhân.
+  const team = leaderTeam(user);
   if (team) return rows.filter(row => normalized(row.saleTeam) === normalized(team) || normalized(row.saleOwner).startsWith(normalized(team)));
+  if (user.role === 'sale') return rows.filter(row => sameSale(row.saleOwner, user.sale) || sameSale(row.saleOwner, user.name));
   return rows;
 }
 function customsHistory(shipment, user, action, fromStatus, toStatus, content) {
@@ -789,7 +791,7 @@ http.createServer(async (req, res) => {
     try {
       const { action, id, record } = await readJson(req), rows = customsRows();
       const privileged = user.role === 'admin';
-      const team = user.role === 'manager' ? leaderTeam(user) : null;
+      const team = leaderTeam(user);
       const canWarehouse = privileged || user.role === 'manager' || user.role === 'warehouse_cn';
       const canCustoms = privileged || user.role === 'customs_declaration';
       const canAccounting = privileged || user.role === 'accountant';
@@ -909,17 +911,22 @@ http.createServer(async (req, res) => {
     if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
     return fs.readFile(path.join(publicDir, 'modules', 'ktt-customs', 'KTT-dieu-phoi-khai-bao-xep-xe.html'), (error, content) => {
       if (error) return send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8');
+      const encodeForSrcdoc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+      const sessionBridge = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'live-session-bridge.js'), 'utf8'));
+      content = content.toString('utf8')
+        // The locked handoff uses a nested srcdoc iframe.  Permit it to call
+        // the same-origin API so its view and actions use the real session.
+        .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
+        .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
+        .replace('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
+        .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
+        .replace(';render();\n    })();', ';window.KTT_CUSTOMS_RENDER=render;render();\n    })();')
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
-        const importPopupScript = fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8')
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
-        content = content.toString('utf8')
-          .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
-          .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
-          .replace('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
+        const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
+        content = content
           .replace('&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;', '&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;&lt;button id=&quot;cf-import-open&quot;&gt;&lt;span class=&quot;ico&quot;&gt;▤&lt;/span&gt;&lt;span&gt;Nhập kho TQ&lt;/span&gt;&lt;/button&gt;')
-          .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
-          .replace(';render();\n    })();', ';window.KTT_CUSTOMS_RENDER=render;render();\n    })();')
-          .replace('&lt;/body&gt;', `&lt;script&gt;${importPopupScript}&lt;/script&gt;&lt;/body&gt;`);
+          .replace(`&lt;script&gt;${sessionBridge}&lt;/script&gt;`, `&lt;script&gt;${importPopupScript}&lt;/script&gt;&lt;script&gt;${sessionBridge}&lt;/script&gt;`);
       }
       return sendFrameAsset(res, 200, content);
     });

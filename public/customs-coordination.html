@@ -17,6 +17,11 @@
         const frame = document.querySelector('iframe');
         window.addEventListener('message', async event => {
           const message = event.data || {};
+          if (message.type === 'ktt-customs-logout') {
+            try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); }
+            finally { window.location.assign('/login'); }
+            return;
+          }
           // The locked customs module contains a second srcdoc iframe.  Its
           // message source is that inner frame (not the outer iframe above),
           // so accept only the named bridge message and reply to its sender.
