@@ -126,6 +126,121 @@
       item.textContent = item.textContent.replace(/^Lô hàng:[^·]*·\s*/i, '');
     });
   }
+  const confirmationColumns = [
+    ['Mã hàng', row => row.code],
+    ['STT', (_, index) => String(index + 1)],
+    ['Mô tả hàng hóa', row => row.vi],
+    ['Giá XHĐ trước thuế', row => row.invoicePrice],
+    ['Mã HS', row => row.hs],
+    ['SL1', row => row.qty1],
+    ['ĐVT', row => row.unit1],
+    ['Giá khai (USD)', row => row.price],
+    ['Tổng USD', row => row.amount],
+    ['Thuế NK (%)', row => row.importRate],
+    ['Thuế NK', row => row.importTax],
+    ['VAT (%)', row => row.vatRate],
+    ['Tổng thuế (VNĐ)', row => row.totalTax]
+  ];
+  const displayValue = value => {
+    if (value === undefined || value === null || value === '') return '';
+    const number = Number(String(value).replace(/,/g, ''));
+    return Number.isFinite(number) && String(value).trim() !== ''
+      ? number.toLocaleString('en-US', { maximumFractionDigits: 4 })
+      : String(value);
+  };
+  function confirmationRows(shipment) {
+    return (shipment?.customsLines || []).map((line, index) => ({ ...line, code: shipment.code, index }));
+  }
+  // The handoff template contains extra internal customs fields.  Customers
+  // receive this concise confirmation sheet, which is also the export source.
+  function syncConfirmationPresentation() {
+    const sheet = document.querySelector('#cf-confirm-export');
+    const shipment = selectedShipment();
+    if (!sheet || !shipment) return;
+    const rows = confirmationRows(shipment);
+    const head = confirmationColumns.map(([label]) => `<th>${esc(label)}</th>`).join('');
+    const body = rows.length
+      ? rows.map((row, index) => `<tr>${confirmationColumns.map(([, get]) => `<td>${esc(displayValue(get(row, index)))}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${confirmationColumns.length}" style="text-align:center">Chưa có dòng khai báo</td></tr>`;
+    sheet.innerHTML = `
+      <div class="cf-export-title">THÔNG TIN KHAI BÁO HÀNG HÓA</div>
+      <div class="cf-export-meta">Mã khách: ${esc(shipment.customer || '')} · Mã hàng: ${esc(shipment.code || '')}</div>
+      <div style="overflow:auto"><table class="cf-confirm-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      <div class="cf-export-footer"><span>${rows.length} dòng khai báo</span><span>Ngày xuất: ${new Date().toLocaleDateString('vi-VN')}</span></div>`;
+  }
+  function wrappedLines(context, value, width, maxLines = 5) {
+    const words = String(value || '—').split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (context.measureText(next).width > width && line) { lines.push(line); line = word; }
+      else line = next;
+      if (lines.length >= maxLines) break;
+    }
+    if (line && lines.length < maxLines) lines.push(line);
+    if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) lines[maxLines - 1] += '…';
+    return lines;
+  }
+  function downloadConfirmationPng(button) {
+    const shipment = selectedShipment();
+    const rows = confirmationRows(shipment);
+    if (!shipment || !rows.length) throw new Error('Chưa có dữ liệu khai báo để tải ảnh.');
+    const widths = [135, 52, 280, 130, 105, 62, 68, 125, 115, 98, 120, 78, 150];
+    const sheetWidth = widths.reduce((sum, value) => sum + value, 0);
+    const scale = 2, padding = 32, titleHeight = 88, headerHeight = 62, lineHeight = 24;
+    const measure = document.createElement('canvas').getContext('2d');
+    measure.font = '16px Arial';
+    const layout = rows.map((row, index) => {
+      const values = confirmationColumns.map(([, get]) => displayValue(get(row, index)));
+      const height = Math.max(54, ...values.map((value, col) => wrappedLines(measure, value, widths[col] - 18).length * lineHeight + 24));
+      return { values, height };
+    });
+    const tableHeight = headerHeight + layout.reduce((sum, row) => sum + row.height, 0);
+    const outputWidth = sheetWidth + padding * 2;
+    const outputHeight = titleHeight + tableHeight + 78;
+    const canvas = document.createElement('canvas');
+    canvas.width = outputWidth * scale; canvas.height = outputHeight * scale;
+    const context = canvas.getContext('2d'); context.scale(scale, scale);
+    context.fillStyle = '#ffffff'; context.fillRect(0, 0, outputWidth, outputHeight);
+    context.fillStyle = '#172033'; context.font = '700 25px Arial';
+    context.fillText('THÔNG TIN KHAI BÁO HÀNG HÓA', padding, 36);
+    context.font = '16px Arial'; context.fillStyle = '#45546f';
+    context.fillText(`Mã khách: ${shipment.customer || '—'}   ·   Mã hàng: ${shipment.code || '—'}`, padding, 64);
+    let x = padding, y = titleHeight;
+    context.fillStyle = '#ddd1f5'; context.fillRect(x, y, sheetWidth, headerHeight);
+    context.strokeStyle = '#b9afd5'; context.lineWidth = 1;
+    confirmationColumns.forEach(([label], col) => {
+      context.strokeRect(x, y, widths[col], headerHeight);
+      context.fillStyle = '#30294a'; context.font = '700 14px Arial';
+      wrappedLines(context, label, widths[col] - 16, 3).forEach((line, position) => context.fillText(line, x + 8, y + 24 + position * 18));
+      x += widths[col];
+    });
+    y += headerHeight;
+    layout.forEach((row, rowIndex) => {
+      x = padding;
+      context.fillStyle = rowIndex % 2 ? '#fbfaf7' : '#ffffff'; context.fillRect(x, y, sheetWidth, row.height);
+      row.values.forEach((value, col) => {
+        context.strokeStyle = '#d9dfeb'; context.strokeRect(x, y, widths[col], row.height);
+        context.fillStyle = '#1d2636'; context.font = '15px Arial';
+        wrappedLines(context, value, widths[col] - 18).forEach((line, position) => context.fillText(line, x + 9, y + 23 + position * lineHeight));
+        x += widths[col];
+      });
+      y += row.height;
+    });
+    context.fillStyle = '#65738c'; context.font = '14px Arial';
+    context.fillText(`${rows.length} dòng khai báo · Ngày xuất: ${new Date().toLocaleDateString('vi-VN')}`, padding, outputHeight - 28);
+    const original = button.textContent;
+    button.disabled = true; button.textContent = 'Đang tải ảnh…';
+    canvas.toBlob(blob => {
+      if (!blob) { button.disabled = false; button.textContent = original; alert('Không thể tạo ảnh PNG.'); return; }
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob); link.download = `xac-nhan-khai-bao-${shipment.code || 'hang-hoa'}.png`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      button.disabled = false; button.textContent = '✓ Đã tải ảnh PNG';
+    }, 'image/png');
+  }
   function applyRoleUi() {
     const userBox = document.querySelector('.cf-user');
     const sessionKey = currentUser ? `${currentUser.id}:${currentUser.name}:${currentUser.role}` : '';
@@ -164,6 +279,7 @@
     data.splice(0, data.length, ...(payload.rows || []).map(mapRow));
     if (window.KTT_CUSTOMS_RENDER) window.KTT_CUSTOMS_RENDER();
     applyRoleUi();
+    syncConfirmationPresentation();
   }
   async function saveWorkflowForm(form) {
     if (!form || form.dataset.kttSaving === '1') return;
@@ -223,8 +339,21 @@
       alert('Đã cập nhật dữ liệu.');
     } catch (error) { alert(error.message || 'Không thể cập nhật.'); }
   }, true);
+  // The locked module's original export relies on a library that is not part
+  // of the deployed page.  Generate the confirmation image directly from the
+  // actual declaration data, then trigger a real browser download.
+  document.addEventListener('click', event => {
+    const button = event.target.closest('#cf-export-png');
+    if (!button) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    try { downloadConfirmationPng(button); }
+    catch (error) { alert(error.message || 'Không thể tạo ảnh PNG.'); }
+  }, true);
   // The locked UI builds detail forms after a row or tab is clicked.  Reapply
   // read-only state after that render without observing DOM mutations.
-  document.addEventListener('click', () => setTimeout(applyRoleUi, 0), true);
+  document.addEventListener('click', () => setTimeout(() => {
+    applyRoleUi();
+    syncConfirmationPresentation();
+  }, 0), true);
   refresh().catch(error => console.error('KTT customs session bridge:', error));
 })();

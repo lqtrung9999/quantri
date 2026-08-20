@@ -916,7 +916,7 @@ http.createServer(async (req, res) => {
       content = content.toString('utf8')
         // The locked handoff uses a nested srcdoc iframe.  Permit it to call
         // the same-origin API so its view and actions use the real session.
-        .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
+        .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin allow-downloads"')
         .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
         .replaceAll('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
         .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
