@@ -1,5 +1,5 @@
 (() => {
-  const normalize = value => String(value || '').trim().toLocaleUpperCase('vi-VN');
+  const normalize = value => String(value || '').trim().toLocaleUpperCase('vi-VN').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D');
   let cache = new Map(), scheduled = false;
 
   function decorate() {
@@ -17,6 +17,8 @@
       }
       header.dataset.operationalColumns = 'true';
     }
+    const cargoHeader = [...(header?.children || [])].find(cell => normalize(cell.textContent).includes('MAHANG'));
+    if (cargoHeader) cargoHeader.textContent = 'MÃ HÀNG';
     document.querySelectorAll('#rows tr').forEach(row => {
       if (row.dataset.operationalColumns || row.querySelector('.empty')) return;
       const code = row.querySelector('[data-open]')?.textContent;
@@ -32,6 +34,11 @@
         saleCell.after(accountant);
       }
       row.dataset.operationalColumns = 'true';
+    });
+    document.querySelectorAll('[data-open] + .sub').forEach(item => { item.hidden = true; });
+    document.querySelectorAll('label').forEach(label => {
+      const ownText = [...label.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join(' ');
+      if (normalize(ownText) === 'LOHANG') label.remove();
     });
   }
 
