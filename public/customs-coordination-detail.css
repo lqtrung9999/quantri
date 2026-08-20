@@ -79,7 +79,36 @@
 }
 
 #detailModal .tabs .tab.active { color: #ff6d1f; border-bottom-color: #ff6d1f; }
-#detailModal .pane { padding: 32px 38px; }
+#detailModal .pane {
+  padding: 28px 34px 34px;
+}
+
+/* The form is the working area: make it as legible as the compact summary above. */
+#detailModal .pane .fields {
+  gap: 16px;
+}
+
+#detailModal .pane .fields label {
+  gap: 8px;
+  color: #5f708d;
+  font-size: 15px;
+}
+
+#detailModal .pane .fields input,
+#detailModal .pane .fields select,
+#detailModal .pane .fields textarea {
+  min-height: 52px;
+  padding: 13px 16px;
+  border-radius: 10px;
+  color: #28364d;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+#detailModal .pane h2,
+#detailModal .pane h3 {
+  font-size: 21px;
+}
 
 @media (max-width: 800px) {
   #detailModal .dialog { width: 100vw; max-height: 100vh; border-radius: 0; }

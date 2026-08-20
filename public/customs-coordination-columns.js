@@ -68,6 +68,19 @@
       ].map(([label, value]) => `<div class="shipment-meta-card"><span>${label}</span><b>${value}</b></div>`).join('');
       meta.dataset.cargo = row.cargoCode;
     }
+    const warehouseFields = modal.querySelector('#pane-warehouse .fields');
+    if (warehouseFields) {
+      warehouseFields.querySelectorAll('label').forEach(label => {
+        const ownText = [...label.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join(' ');
+        if (normalize(ownText) === 'LOHANG') label.remove();
+      });
+      if (!warehouseFields.querySelector('.accountant-detail-field')) {
+        const accountantField = document.createElement('label');
+        accountantField.className = 'accountant-detail-field';
+        accountantField.innerHTML = `Kế toán<input value="${row.accountant || '—'}" readonly>`;
+        warehouseFields.append(accountantField);
+      }
+    }
     const stages = { sale_required: 1, customs_pending: 2, customer_confirmation: 3, ready_for_loading: 4 };
     const current = stages[row.status] ?? 0;
     modal.querySelectorAll('#workflow .step').forEach((step, index) => step.classList.toggle('current', index === current));
