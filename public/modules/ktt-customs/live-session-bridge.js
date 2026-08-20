@@ -54,10 +54,28 @@
     if (!response.ok) throw new Error(payload.error || 'Không thể lưu thay đổi.');
     return payload;
   }
-  function field(row, name) { return row.querySelector(`[data-field="${name}"]`)?.value?.trim() || ''; }
+  function field(row, name) {
+    // The locked UI uses `data-field`; accept the alternate names too so that
+    // product rows created by earlier versions can still be sent correctly.
+    const aliases = {
+      description: ['description', 'product', 'name'],
+      packs: ['packs', 'packageCount'],
+      productsPerPack: ['productsPerPack', 'products', 'productCount'],
+      size: ['size', 'productSize'],
+      qty: ['qty', 'declarationQuantity'],
+      unit: ['unit', 'declarationUnit'],
+      invoicePrice: ['invoicePrice', 'invoicePriceBeforeVat', 'price'],
+      note: ['note', 'remark']
+    };
+    for (const key of aliases[name] || [name]) {
+      const input = row.querySelector(`[data-field="${key}"], [data-sale-field="${key}"]`);
+      if (input) return input.value?.trim() || '';
+    }
+    return '';
+  }
   function saleLines(form) {
-    return [...form.querySelectorAll('[data-line]')].map((row, index) => ({
-      id: row.dataset.line || `sale-${index}`, description: field(row, 'description'), packageCount: field(row, 'packs'),
+    return [...form.querySelectorAll('[data-line], [data-sale-row], .cf-product-row, .cf-sale-row')].map((row, index) => ({
+      id: row.dataset.line || row.dataset.saleRow || `sale-${index}`, description: field(row, 'description'), packageCount: field(row, 'packs'),
       productsPerPackage: field(row, 'productsPerPack'), productSize: field(row, 'size'), declarationQuantity: field(row, 'qty'),
       declarationUnit: field(row, 'unit'), invoicePriceBeforeVat: field(row, 'invoicePrice'), note: field(row, 'note'), images: []
     })).filter(line => line.description);
@@ -147,13 +165,15 @@
     if (window.KTT_CUSTOMS_RENDER) window.KTT_CUSTOMS_RENDER();
     applyRoleUi();
   }
-  document.addEventListener('submit', async event => {
-    const form = event.target;
-    if (form.id !== 'cf-sale-form' && form.id !== 'cf-customs-form') return;
-    event.preventDefault(); event.stopImmediatePropagation();
+  async function saveWorkflowForm(form) {
+    if (!form || form.dataset.kttSaving === '1') return;
+    form.dataset.kttSaving = '1';
+    const submitButton = form.querySelector('.cf-form-foot button:not([type="button"]), .cf-form-foot button[type="submit"]');
+    const originalLabel = submitButton?.textContent;
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Đang lưu…'; }
     const shipment = selectedShipment();
-    if (!shipment) return alert('Không xác định được mã hàng đang xử lý.');
     try {
+      if (!shipment) throw new Error('Không xác định được mã hàng đang xử lý.');
       if (form.id === 'cf-sale-form') {
         if (!allowSale()) throw new Error('Bạn không có quyền cập nhật Thông tin Sale.');
         const lines = saleLines(form); if (!lines.length) throw new Error('Cần có ít nhất một dòng sản phẩm có mô tả.');
@@ -166,6 +186,27 @@
       await refresh(); document.querySelector('.cf-close-detail')?.click();
       alert('Đã lưu thông tin vào hệ thống.');
     } catch (error) { alert(error.message || 'Không thể lưu thay đổi.'); }
+    finally {
+      form.dataset.kttSaving = '';
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel || 'Lưu'; }
+    }
+  }
+  document.addEventListener('submit', event => {
+    const form = event.target;
+    if (form.id !== 'cf-sale-form' && form.id !== 'cf-customs-form') return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    saveWorkflowForm(form);
+  }, true);
+  // The original handoff attaches its own form handler.  Intercept the actual
+  // save-button click as well, preventing that demo-only handler from
+  // swallowing the action before the real API call is made.
+  document.addEventListener('click', event => {
+    const button = event.target.closest('#cf-sale-form .cf-form-foot button, #cf-customs-form .cf-form-foot button');
+    if (!button) return;
+    const form = button.closest('form');
+    if (!form || button.type === 'button') return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    saveWorkflowForm(form);
   }, true);
   document.addEventListener('click', async event => {
     const button = event.target.closest('#cf-confirm-ok, #cf-request-edit, #cf-send-supplement');
