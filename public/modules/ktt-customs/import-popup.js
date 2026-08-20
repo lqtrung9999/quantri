@@ -52,12 +52,14 @@
     const timeout = setTimeout(() => { window.removeEventListener('message', onMessage); reject(new Error('Hệ thống phản hồi quá lâu. Vui lòng thử lại.')); }, 30000);
     const onMessage = event => {
       const message = event.data || {};
-      if (event.source !== window.parent || message.type !== 'ktt-customs-import-result' || message.requestId !== requestId) return;
+      if (event.source !== window.top || message.type !== 'ktt-customs-import-result' || message.requestId !== requestId) return;
       clearTimeout(timeout); window.removeEventListener('message', onMessage);
       if (message.ok) resolve(message.result || {}); else reject(new Error(message.error || 'Không thể lưu dữ liệu.'));
     };
     window.addEventListener('message', onMessage);
-    window.parent.postMessage({ type: 'ktt-customs-import-save', requestId, rows }, '*');
+    // The UI module is nested in an iframe inside the locked module wrapper.
+    // Send straight to the page that owns the authenticated API bridge.
+    window.top.postMessage({ type: 'ktt-customs-import-save', requestId, rows }, '*');
   });
   const errorsFor = row => {
     const errors = [];
