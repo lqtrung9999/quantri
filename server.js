@@ -879,12 +879,20 @@ http.createServer(async (req, res) => {
   if (pathname === '/warehouse-cn-import.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canImportCustomsWarehouse(user)) return send(res, 403, 'Chỉ Kho TQ hoặc Quản lý được nhập dữ liệu hàng về kho.', 'text/plain; charset=utf-8');
-    return fs.readFile(path.join(publicDir, 'warehouse-cn-import.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang nhập kho TQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+    return fs.readFile(path.join(publicDir, 'warehouse-cn-import.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang nhập kho TQ.', 'text/plain; charset=utf-8') : sendFrameAsset(res, 200, content));
   }
   if (pathname === '/modules/ktt-customs/KTT-dieu-phoi-khai-bao-xep-xe.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
-    return fs.readFile(path.join(publicDir, 'modules', 'ktt-customs', 'KTT-dieu-phoi-khai-bao-xep-xe.html'), (error, content) => error ? send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8') : sendFrameAsset(res, 200, content));
+    return fs.readFile(path.join(publicDir, 'modules', 'ktt-customs', 'KTT-dieu-phoi-khai-bao-xep-xe.html'), (error, content) => {
+      if (error) return send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8');
+      if (canImportCustomsWarehouse(user)) {
+        content = content
+          .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin"')
+          .replace('&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;', '&lt;button&gt;&lt;span class=&quot;ico&quot;&gt;⌂&lt;/span&gt;&lt;span&gt;Tổng quan&lt;/span&gt;&lt;/button&gt;&lt;button onclick=&quot;location.href=&#x27;/warehouse-cn-import.html&#x27;&quot;&gt;&lt;span class=&quot;ico&quot;&gt;▤&lt;/span&gt;&lt;span&gt;Nhập kho TQ&lt;/span&gt;&lt;/button&gt;');
+      }
+      return sendFrameAsset(res, 200, content);
+    });
   }
   if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
