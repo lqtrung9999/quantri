@@ -136,6 +136,7 @@ function canUseCustomerManagement(user) { return user?.role === 'admin'; }
 function canUseAccountingDemo(user) { return user && ['admin', 'accountant'].includes(user.role); }
 const customsRoles = new Set(['admin', 'accountant', 'sale', 'warehouse_cn', 'customs_declaration', 'manager', 'truck_planner']);
 function canUseCustoms(user) { return Boolean(user && customsRoles.has(user.role)); }
+function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn'].includes(user.role)); }
 function customsActorRole(user) {
   if (['admin', 'manager'].includes(user?.role)) return 'manager';
   if (user?.role === 'accountant') return 'accounting';
@@ -770,6 +771,52 @@ http.createServer(async (req, res) => {
       const canWarehouse = privileged || user.role === 'warehouse_cn';
       const canCustoms = privileged || user.role === 'customs_declaration';
       const canAccounting = privileged || user.role === 'accountant';
+      if (action === 'bulk_import_warehouse') {
+        if (!canWarehouse) return send(res, 403, { error: 'Chỉ Kho TQ hoặc Quản lý được nhập bảng hàng về kho.' });
+        const incoming = Array.isArray(record?.rows) ? record.rows.slice(0, 1000) : [];
+        if (!incoming.length) return send(res, 400, { error: 'Chưa có dòng dữ liệu hợp lệ để lưu.' });
+        const seen = new Set();
+        const importedAt = new Date().toISOString();
+        let created = 0, updated = 0;
+        for (const item of incoming) {
+          const cargoCode = String(item?.cargoCode || '').trim().slice(0, 80);
+          if (!cargoCode || seen.has(normalized(cargoCode))) continue;
+          seen.add(normalized(cargoCode));
+          const sourceRow = {
+            operationDate: customsOperationalDate(item?.operationDate),
+            cargoCode,
+            packageCount: customsNumber(item?.packageCount),
+            productName: String(item?.productName || '').trim().slice(0, 500),
+            customerCode: String(item?.customerCode || '').trim().slice(0, 80),
+            ownerName: String(item?.ownerName || '').trim().slice(0, 150),
+            saleOwner: String(item?.saleOwner || '').trim().slice(0, 150),
+            saleTeam: String(item?.saleTeam || '').trim().slice(0, 40),
+            accountant: String(item?.accountant || '').trim().slice(0, 120),
+            weightKg: customsNumber(item?.weightKg),
+            volumeM3: customsNumber(item?.volumeM3)
+          };
+          if (!sourceRow.ownerName || !Number.isFinite(vietnameseDateStamp(sourceRow.operationDate))) continue;
+          const shipment = rows.find(row => normalized(row.cargoCode) === normalized(cargoCode));
+          if (shipment) {
+            for (const key of Object.keys(sourceRow)) if (sourceRow[key] !== undefined && shipment[key] !== sourceRow[key]) shipment[key] = sourceRow[key];
+            shipment.source = 'warehouse_paste'; shipment.updatedAt = importedAt;
+            customsHistory(shipment, user, 'update_warehouse_paste', shipment.status, shipment.status, 'Kho TQ cập nhật dữ liệu từ bảng dán.');
+            updated += 1;
+            continue;
+          }
+          const createdShipment = {
+            id: crypto.randomUUID(), ...sourceRow, lotCode: '', source: 'warehouse_paste', status: 'sale_required', documentStatus: 'Chưa kiểm tra',
+            createdAt: importedAt, updatedAt: importedAt,
+            saleProductLines: sourceRow.productName ? [{ id: crypto.randomUUID(), description: sourceRow.productName, packageCount: sourceRow.packageCount, images: [] }] : [],
+            customsLines: [], supplementRequests: [], history: []
+          };
+          customsHistory(createdShipment, user, 'import_warehouse_paste', '', 'sale_required', `Kho TQ nhập từ bảng dán ngày ${sourceRow.operationDate}.`);
+          rows.unshift(createdShipment); created += 1;
+        }
+        if (!created && !updated) return send(res, 400, { error: 'Không có dòng nào đủ thông tin để lưu. Cần tối thiểu Ngày, Mã hàng và Chủ hàng.' });
+        saveCustomsRows(rows); customsWarehouseSyncCache = { expiresAt: 0 };
+        return send(res, 200, { ok: true, created, updated, total: created + updated });
+      }
       if (action === 'create') {
         if (!canWarehouse) return send(res, 403, { error: 'Chỉ Kho TQ hoặc Quản lý được tạo mã hàng.' });
         const cargoCode = String(record?.cargoCode || '').trim().slice(0, 80), ownerName = String(record?.ownerName || '').trim().slice(0, 150);
@@ -828,6 +875,11 @@ http.createServer(async (req, res) => {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
     return fs.readFile(path.join(publicDir, 'customs-coordination.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+  }
+  if (pathname === '/warehouse-cn-import.html') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (!canImportCustomsWarehouse(user)) return send(res, 403, 'Chỉ Kho TQ hoặc Quản lý được nhập dữ liệu hàng về kho.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(publicDir, 'warehouse-cn-import.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang nhập kho TQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   }
   if (pathname === '/modules/ktt-customs/KTT-dieu-phoi-khai-bao-xep-xe.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }

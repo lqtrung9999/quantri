@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nhập hàng về kho TQ | Kim Thành Tín</title>
+  <link rel="icon" href="/favicon-ktt.png">
+  <link rel="stylesheet" href="/warehouse-cn-import.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="/">← Dashboard</a>
+    <div><p class="eyebrow">KHAI BÁO HQ · HÀNG CN</p><h1>Nhập dữ liệu hàng về kho TQ</h1></div>
+    <div id="profile" class="profile"></div>
+  </header>
+  <main>
+    <section class="hero">
+      <div><h2>Dán nguyên bảng từ Google Sheets</h2><p>Chọn ô đầu tiên trong Google Sheets, sao chép toàn bộ các dòng hàng về kho rồi dán vào ô bên dưới. Hệ thống giữ đúng thứ tự cột và kiểm tra trước khi lưu.</p></div>
+      <ol><li>Sao chép bảng hàng về kho</li><li>Dán vào ô nhập liệu</li><li>Kiểm tra bảng xem trước</li><li>Lưu để chuyển Sale và Khai báo HQ xử lý</li></ol>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><div><h2>1. Dán dữ liệu</h2><p>Không cần chỉnh định dạng. Có thể dán kèm hoặc không kèm hàng tiêu đề.</p></div><button id="clear" class="secondary" type="button">Xóa bảng dán</button></div>
+      <div class="mapping" aria-label="Thứ tự cột cần dán"><span>1. Ngày/tháng</span><span>2. Mã hàng</span><span>3. Số kiện</span><span>4. Tên hàng</span><span>5. Mã KH</span><span>6. Chủ hàng</span><span>7. Sale</span><span>8. Phòng Sale</span><span>9. Kế toán</span><span>10. KG</span><span>11. M³</span></div>
+      <textarea id="paste" spellcheck="false" placeholder="Dán dữ liệu từ Google Sheets vào đây…"></textarea>
+      <div id="parseMessage" class="message" role="status"></div>
+    </section>
+    <section class="panel preview-panel">
+      <div class="panel-head"><div><h2>2. Kiểm tra trước khi lưu</h2><p id="previewSummary">Chưa có dữ liệu để xem trước.</p></div><button id="save" class="primary" type="button" disabled>Lưu dữ liệu vào hệ thống</button></div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Ngày/tháng</th><th>Mã hàng</th><th>Số kiện</th><th>Tên hàng</th><th>Mã KH</th><th>Chủ hàng</th><th>Sale</th><th>Phòng</th><th>Kế toán</th><th>KG</th><th>M³</th><th>Kiểm tra</th></tr></thead><tbody id="preview"><tr><td colspan="13" class="empty">Dán bảng dữ liệu để bắt đầu.</td></tr></tbody></table></div>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/warehouse-cn-import.js"></script>
+</body>
+</html>
