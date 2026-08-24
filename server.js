@@ -125,6 +125,24 @@ function saveCrmNewRows(rows) {
   fs.writeFileSync(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, crmNewDataFile);
 }
+const crmNewStatuses = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ'];
+const crmNewCategories = ['', 'Khách cực kỳ tiềm năng', 'Khách tiềm năng', 'Khách không tiềm năng'];
+const crmNewResults = ['', 'Đã Chốt', 'Chưa Chốt Được'];
+const crmNewEditableFields = {
+  phone: { label: 'Số điện thoại', limit: 50 }, source: { label: 'Nguồn', limit: 50 }, product: { label: 'Mặt hàng', limit: 200 },
+  link: { label: 'Link', limit: 1000 }, status: { label: 'Trạng thái Zalo', values: crmNewStatuses },
+  category: { label: 'Phân loại KH', values: crmNewCategories }, result: { label: 'Kết quả', values: crmNewResults }
+};
+function crmNewActor(user) { return user.name || user.sale || user.username || 'Không xác định'; }
+function crmNewAudit(field, from, to, user, at) {
+  return { field, label: crmNewEditableFields[field]?.label || field, from: String(from ?? ''), to: String(to ?? ''), author: crmNewActor(user), userId: user.id, at };
+}
+function crmNewCleanField(field, value) {
+  const definition = crmNewEditableFields[field];
+  const clean = String(value ?? '').trim();
+  if (definition.values && !definition.values.includes(clean)) throw new Error(`${definition.label} không hợp lệ.`);
+  return clean.slice(0, definition.limit || 500);
+}
 function accountingDemoData() {
   if (!fs.existsSync(accountingDemoDataFile)) return {};
   try {
@@ -673,31 +691,56 @@ http.createServer(async (req, res) => {
       if (action === 'create') {
         const name = String(record?.name || '').trim();
         if (!name || name.length > 150) return send(res, 400, { error: 'Vui lòng nhập tên khách hàng.' });
+        const now = new Date().toISOString();
         const item = {
-          id: crypto.randomUUID(), name, phone: String(record?.phone || '').trim().slice(0, 50), source: String(record?.source || 'Khác').trim().slice(0, 50),
-          link: String(record?.link || '').trim().slice(0, 1000), product: String(record?.product || '').trim().slice(0, 200), status: '', category: '', result: '',
-          sale: user.sale || user.name, foundAt: crmNewToday(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), notes: []
+          id: crypto.randomUUID(), name, phone: crmNewCleanField('phone', record?.phone), source: crmNewCleanField('source', record?.source || 'Khác'),
+          link: crmNewCleanField('link', record?.link), product: crmNewCleanField('product', record?.product), status: '', category: '', result: '',
+          sale: user.sale || user.name, foundAt: crmNewToday(), createdAt: now, updatedAt: now, notes: [],
+          history: [{ field: 'created', label: 'Tạo hồ sơ', from: '', to: name, author: crmNewActor(user), userId: user.id, at: now }],
+          zaloTimeline: [{ status: '', label: 'Chưa cập nhật', author: crmNewActor(user), userId: user.id, at: now }]
         };
         const initialNote = String(record?.note || '').trim().slice(0, 4000);
-        if (initialNote) item.notes.push({ text: initialNote, author: user.name, at: new Date().toISOString() });
+        if (initialNote) {
+          item.notes.push({ text: initialNote, author: crmNewActor(user), userId: user.id, at: now });
+          item.history.push({ field: 'note', label: 'Ghi chú', from: '', to: initialNote, author: crmNewActor(user), userId: user.id, at: now });
+        }
         rows.push(item); saveCrmNewRows(rows);
         return send(res, 201, { record: item, sync: await syncCrmNewRows(rows) });
       }
       const item = rows.find(row => row.id === id || row.id === record?.id);
       if (!item || !sameSale(item.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể cập nhật khách hàng của mình.' });
       if (action === 'update') {
-        const statuses = ['', 'Đã gửi lời mời kết bạn', 'Đã kết bạn', 'Đã gửi tin nhắn khách chưa phản hồi', 'Khách đã tương tác', 'Đã tư vấn dịch vụ'];
-        const categories = ['', 'Khách cực kỳ tiềm năng', 'Khách tiềm năng', 'Khách không tiềm năng'];
-        const results = ['', 'Đã Chốt', 'Chưa Chốt Được'];
-        if (!statuses.includes(record?.status) || !categories.includes(record?.category) || !results.includes(record?.result)) return send(res, 400, { error: 'Trạng thái khách hàng không hợp lệ.' });
-        item.status = record.status; item.category = record.category; item.result = record.result; item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows);
+        const now = new Date().toISOString(), changes = [];
+        item.history = Array.isArray(item.history) ? item.history : [];
+        for (const field of Object.keys(crmNewEditableFields)) {
+          if (!Object.prototype.hasOwnProperty.call(record || {}, field)) continue;
+          const next = crmNewCleanField(field, record[field]), previous = String(item[field] ?? '');
+          if (next === previous) continue;
+          changes.push(crmNewAudit(field, previous, next, user, now)); item[field] = next;
+          if (field === 'status') {
+            item.zaloTimeline = Array.isArray(item.zaloTimeline) && item.zaloTimeline.length ? item.zaloTimeline : [{ status: '', label: 'Chưa cập nhật', author: 'Hệ thống', at: item.createdAt || now }];
+            item.zaloTimeline.push({ status: next, label: next || 'Chưa cập nhật', author: crmNewActor(user), userId: user.id, at: now });
+          }
+        }
+        const note = String(record?.note || '').trim().slice(0, 4000);
+        if (note) {
+          item.notes = Array.isArray(item.notes) ? item.notes : [];
+          item.notes.push({ text: note, author: crmNewActor(user), userId: user.id, at: now });
+          changes.push({ field: 'note', label: 'Ghi chú', from: '', to: note, author: crmNewActor(user), userId: user.id, at: now });
+        }
+        if (!changes.length) return send(res, 200, { record: item, unchanged: true, sync: crmNewSyncState });
+        item.history.push(...changes); item.updatedAt = now; saveCrmNewRows(rows);
         return send(res, 200, { record: item, sync: await syncCrmNewRows(rows) });
       }
       if (action === 'addNote') {
         const note = String(text || '').trim().slice(0, 4000);
         if (!note) return send(res, 400, { error: 'Vui lòng nhập nội dung ghi chú.' });
         item.notes = Array.isArray(item.notes) ? item.notes : [];
-        item.notes.push({ text: note, author: user.name, at: new Date().toISOString() }); item.updatedAt = new Date().toISOString(); saveCrmNewRows(rows);
+        const now = new Date().toISOString();
+        item.notes.push({ text: note, author: crmNewActor(user), userId: user.id, at: now });
+        item.history = Array.isArray(item.history) ? item.history : [];
+        item.history.push({ field: 'note', label: 'Ghi chú', from: '', to: note, author: crmNewActor(user), userId: user.id, at: now });
+        item.updatedAt = now; saveCrmNewRows(rows);
         return send(res, 200, { record: item, sync: await syncCrmNewRows(rows) });
       }
       return send(res, 400, { error: 'Thao tác CRM Mới không hợp lệ.' });
@@ -865,7 +908,8 @@ http.createServer(async (req, res) => {
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
-    return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', '<script src="/crm-new-dashboard-link.js"></script><script src="/crm-new-app.js"></script></body>'), 'text/html; charset=utf-8'));
+    const appVersion = Math.floor(fs.statSync(path.join(publicDir, 'crm-new-app.js')).mtimeMs);
+    return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', `<script src="/crm-new-dashboard-link.js?v=${appVersion}"></script><script src="/crm-new-app.js?v=${appVersion}"></script></body>`), 'text/html; charset=utf-8'));
   }
   if (pathname === '/accounting-entry-demo.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
