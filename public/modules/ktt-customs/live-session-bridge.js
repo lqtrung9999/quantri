@@ -55,6 +55,7 @@
       customer: row.customerCode || '', owner: row.ownerName || '', sale: row.saleOwner || '', team: row.saleTeam || '',
       accounting: row.accountant || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0), photos: 0,
       docs: row.documentStatus || 'Chưa kiểm tra', status: status(row.status),
+      _status: row.status, saleLockedAt: row.saleLockedAt || '', customsLockedAt: row.customsLockedAt || '',
       saleInfo: { productLines: (row.saleProductLines || []).map(mapLine) },
       customsLines,
       customs,
@@ -109,7 +110,7 @@
   function allowSale() { return ['sale', 'manager', 'admin'].includes(currentUser?.role); }
   function allowCustoms() { return ['customs_declaration', 'admin'].includes(currentUser?.role); }
   function disablePane(selector, disabled) {
-    document.querySelector(selector)?.querySelectorAll('input, textarea, select, button').forEach(item => {
+    document.querySelector(selector)?.querySelectorAll('input, textarea, select, button:not(.ktt-change)').forEach(item => {
       item.disabled = disabled;
       item.setAttribute('aria-disabled', String(disabled));
     });
@@ -267,7 +268,7 @@
     if (userBox && currentUser && userBox.dataset.kttSessionUser !== sessionKey) {
       userBox.innerHTML = `<span>${esc(currentUser.name)} · ${esc(roleTitle(currentUser))}</span><button id="cf-logout" class="cf-avatar" title="Đăng xuất">${esc(initials(currentUser.name))}</button>`;
       userBox.dataset.kttSessionUser = sessionKey;
-      userBox.querySelector('#cf-logout')?.addEventListener('click', () => window.parent.postMessage({ type: 'ktt-customs-logout' }, '*'));
+      userBox.querySelector('#cf-logout')?.addEventListener('click', () => window.top.postMessage({ type: 'ktt-customs-logout' }, '*'));
     }
 
     // All permitted users can see every workflow tab and every status.  Editing
@@ -275,19 +276,62 @@
     if (!allowSale()) {
       disablePane('#cf-pane-sale', true);
     } else {
-      disablePane('#cf-pane-sale', false);
+      disablePane('#cf-pane-sale', selectedShipment()?._status !== 'sale_required');
     }
     if (!allowCustoms()) {
       disablePane('#cf-pane-customs', true);
       disablePane('#cf-pane-confirm', true);
     } else {
-      disablePane('#cf-pane-customs', false);
-      disablePane('#cf-pane-confirm', false);
+      disablePane('#cf-pane-customs', selectedShipment()?._status !== 'customs_pending');
+      disablePane('#cf-pane-confirm', selectedShipment()?._status !== 'customer_confirmation');
     }
     // Kế toán is shown for context to every role, but remains read-only outside
     // the administrator/accounting workflow.
     disablePane('#cf-pane-accounting', currentUser?.role !== 'admin');
     removeLotPresentation();
+    installWorkflowControls();
+  }
+  function workflowButton(label, className, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = `cf-action ${className || ''}`; button.textContent = label;
+    button.addEventListener('click', onClick); return button;
+  }
+  function installWorkflowControls() {
+    const shipment = selectedShipment();
+    if (!shipment) return;
+    const saleForm = document.querySelector('#cf-sale-form');
+    const customsForm = document.querySelector('#cf-customs-form');
+    const addControls = (form, stage) => {
+      if (!form || form.dataset.kttServerControls === '1') return;
+      form.dataset.kttServerControls = '1';
+      const feet = form.querySelectorAll('.cf-form-foot');
+      const foot = feet[feet.length - 1];
+      const finalButton = foot?.querySelector('button:not([type="button"]), button[type="submit"]') || [...(foot?.querySelectorAll('button') || [])].pop();
+      if (!foot || !finalButton) return;
+      finalButton.type = 'submit';
+      finalButton.textContent = stage === 'sale' ? 'Lưu và gửi bộ phận khai báo' : 'Lưu và báo Khai báo xác nhận';
+      const canEdit = stage === 'sale' ? allowSale() && shipment._status === 'sale_required' : allowCustoms() && shipment._status === 'customs_pending';
+      if (canEdit) {
+        const draft = workflowButton('Lưu nháp', 'ktt-draft', () => saveWorkflowForm(form, true));
+        foot.insertBefore(draft, finalButton);
+      } else {
+        const locked = document.createElement('span'); locked.className = 'ktt-server-lock'; locked.textContent = 'Đã khóa sau khi gửi chính thức'; foot.insertBefore(locked, finalButton);
+        finalButton.disabled = true;
+        const canRequest = allowCustoms() && ((stage === 'sale' && ['customs_pending', 'customer_confirmation'].includes(shipment._status)) || (stage === 'customs' && ['customer_confirmation', 'ready_for_loading'].includes(shipment._status)));
+        if (canRequest) foot.insertBefore(workflowButton('Yêu cầu sửa đổi', 'ktt-change', () => requestChange(stage)), finalButton);
+      }
+    };
+    addControls(saleForm, 'sale'); addControls(customsForm, 'customs');
+  }
+  async function requestChange(stage) {
+    const shipment = selectedShipment();
+    const reason = window.prompt('Ghi rõ lý do cần sửa đổi:');
+    if (!shipment || !reason?.trim()) return;
+    try {
+      await request('request_change', shipment._id, { stage, reason: reason.trim() });
+      await refresh(); document.querySelector('.cf-close-detail')?.click();
+      alert('Đã ghi lịch sử và trả đúng bước để chỉnh sửa.');
+    } catch (error) { alert(error.message || 'Không thể tạo yêu cầu sửa đổi.'); }
   }
   async function refresh() {
     const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
@@ -301,7 +345,7 @@
     applyRoleUi();
     syncConfirmationPresentation();
   }
-  async function saveWorkflowForm(form) {
+  async function saveWorkflowForm(form, draft = false) {
     if (!form || form.dataset.kttSaving === '1') return;
     form.dataset.kttSaving = '1';
     const submitButton = form.querySelector('.cf-form-foot button:not([type="button"]), .cf-form-foot button[type="submit"]');
@@ -313,14 +357,14 @@
       if (form.id === 'cf-sale-form') {
         if (!allowSale()) throw new Error('Bạn không có quyền cập nhật Thông tin Sale.');
         const lines = saleLines(form); if (!lines.length) throw new Error('Cần có ít nhất một dòng sản phẩm có mô tả.');
-        await request('save_sale', shipment._id, { productLines: lines });
+        await request(draft ? 'save_sale_draft' : 'save_sale', shipment._id, { productLines: lines });
       } else {
         if (!allowCustoms()) throw new Error('Chỉ bộ phận Khai báo HQ được lên list.');
         const lines = customsLines(form); if (!lines.length) throw new Error('Cần có ít nhất một dòng khai báo.');
-        await request('save_customs', shipment._id, { customsLines: lines });
+        await request(draft ? 'save_customs_draft' : 'save_customs', shipment._id, { customsLines: lines });
       }
       await refresh(); document.querySelector('.cf-close-detail')?.click();
-      alert('Đã lưu thông tin vào hệ thống.');
+      alert(draft ? 'Đã lưu nháp. Trạng thái luồng không thay đổi.' : 'Đã lưu chính thức và khóa phần dữ liệu vừa gửi.');
     } catch (error) { alert(error.message || 'Không thể lưu thay đổi.'); }
     finally {
       form.dataset.kttSaving = '';
@@ -384,5 +428,19 @@
   window.addEventListener('focus', refreshWhenIdle);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshWhenIdle(); });
   window.setInterval(refreshWhenIdle, 5000);
+  const readabilityStyle = document.createElement('style');
+  readabilityStyle.textContent = `
+    #customs-flow-app .cf-table table{font-size:14px!important}#customs-flow-app .cf-table th,#customs-flow-app .cf-table td{padding:14px 12px!important}
+    #customs-flow-app .cf-code{font-size:15px!important}#customs-flow-app .cf-sub,#customs-flow-app .cf-status{font-size:12px!important}
+    #customs-flow-app .cf-dialog{width:min(1180px,96vw)!important}#customs-flow-app .cf-dialog-body,#customs-flow-app .cf-dialog-head{font-size:15px!important}
+    #customs-flow-app .cf-work-tab,#customs-flow-app label,#customs-flow-app label input,#customs-flow-app label select,#customs-flow-app textarea{font-size:14px!important}
+    #customs-flow-app .cf-line-table{font-size:13px!important}#customs-flow-app .cf-line-table input,#customs-flow-app .cf-line-table select,#customs-flow-app .cf-line-table textarea{font-size:13px!important}
+    .ktt-server-lock{display:inline-flex;align-items:center;padding:9px 11px;border-radius:8px;background:#eaf8ef;color:#16835a;font-weight:700}.ktt-draft,.ktt-change{border-color:#ef7a2a!important;color:#d85d12!important;background:#fff!important}
+  `;
+  document.head.appendChild(readabilityStyle);
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('.cf-modal.open').forEach(modal => modal.classList.remove('open'));
+  });
   refresh().catch(error => console.error('KTT customs session bridge:', error));
 })();

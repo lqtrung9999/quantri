@@ -231,6 +231,13 @@ function customsHistory(shipment, user, action, fromStatus, toStatus, content) {
   shipment.history = Array.isArray(shipment.history) ? shipment.history : [];
   shipment.history.push({ id: crypto.randomUUID(), actorId: user.id, actorRole: customsActorRole(user), actor: user.name, action, fromStatus, toStatus, content: String(content || '').slice(0, 4000), createdAt: new Date().toISOString() });
 }
+function customsChangedFields(before, after, labels) {
+  const changed = [];
+  for (const key of Object.keys(labels)) {
+    if (JSON.stringify(before?.[key] ?? null) !== JSON.stringify(after?.[key] ?? null)) changed.push(labels[key]);
+  }
+  return changed.length ? changed.join(', ') : 'không thay đổi nội dung';
+}
 function customsNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
   const text = String(value ?? '').trim().replace(/\s/g, '');
@@ -901,25 +908,58 @@ http.createServer(async (req, res) => {
       if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng.' });
       const managesShipment = Boolean(team && (normalized(shipment.saleTeam) === normalized(team) || normalized(shipment.saleOwner).startsWith(normalized(team))));
       const owns = sameSale(shipment.saleOwner, user.sale) || sameSale(shipment.saleOwner, user.name);
-      if (action === 'save_sale') {
+      if (action === 'save_sale' || action === 'save_sale_draft') {
         if (!(privileged || managesShipment || (user.role === 'sale' && owns))) return send(res, 403, { error: 'Chỉ Sale phụ trách hoặc Trưởng phòng trực tiếp được cập nhật thông tin hàng.' });
+        const draft = action === 'save_sale_draft';
+        if (!draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã gửi và đang bị khóa. Hãy tạo yêu cầu sửa đổi.' });
+        if (draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã khóa, không thể lưu nháp.' });
         const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 80).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 3000), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 2000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
         if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
-        const from = shipment.status; shipment.saleProductLines = productLines; shipment.status = 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'sale_submit', from, shipment.status, `Sale gửi ${productLines.length} dòng sản phẩm cho bộ phận khai báo.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+        const before = { saleProductLines: shipment.saleProductLines };
+        const from = shipment.status; shipment.saleProductLines = productLines;
+        if (!draft) { shipment.status = 'customs_pending'; shipment.saleLockedAt = new Date().toISOString(); shipment.saleLockedBy = user.name; }
+        shipment.updatedAt = new Date().toISOString();
+        customsHistory(shipment, user, draft ? 'sale_draft' : 'sale_submit', from, shipment.status, `${draft ? 'Sale lưu nháp' : 'Sale gửi chính thức'} ${productLines.length} dòng; thay đổi: ${customsChangedFields(before, shipment, { saleProductLines: 'Thông tin Sale' })}.`);
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
       if (action === 'request_supplement') {
         if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được yêu cầu bổ sung.' });
         const content = String(record?.content || '').trim(); if (!content) return send(res, 400, { error: 'Vui lòng ghi nội dung cần Sale bổ sung.' });
         const from = shipment.status; shipment.supplementRequests = Array.isArray(shipment.supplementRequests) ? shipment.supplementRequests : []; shipment.supplementRequests.push({ id: crypto.randomUUID(), shipmentId: shipment.id, requestedBy: user.id, content: content.slice(0, 4000), status: 'open', createdAt: new Date().toISOString() }); shipment.status = 'sale_required'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'request_supplement', from, shipment.status, content); saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
-      if (action === 'save_customs') {
+      if (action === 'save_customs' || action === 'save_customs_draft') {
         if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được lên list khai báo.' });
+        const draft = action === 'save_customs_draft';
+        if (shipment.status !== 'customs_pending') return send(res, 409, { error: 'List khai báo chưa đến lượt xử lý hoặc đã gửi và đang bị khóa.' });
         const lines = Array.isArray(record?.customsLines) ? record.customsLines.slice(0, 80).map(cleanCustomsLine).filter(line => line.goodsDescription || line.hsCode) : [];
         if (!lines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng khai báo.' });
-        const from = shipment.status; shipment.customsLines = lines; shipment.status = 'customer_confirmation'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'customs_submit', from, shipment.status, `Khai báo hoàn tất ${lines.length} dòng, chuyển bước Khai báo xác nhận.`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
+        const before = { customsLines: shipment.customsLines };
+        const from = shipment.status; shipment.customsLines = lines;
+        if (!draft) { shipment.status = 'customer_confirmation'; shipment.customsLockedAt = new Date().toISOString(); shipment.customsLockedBy = user.name; }
+        shipment.updatedAt = new Date().toISOString();
+        customsHistory(shipment, user, draft ? 'customs_draft' : 'customs_submit', from, shipment.status, `${draft ? 'Khai báo lưu nháp' : 'Khai báo gửi chính thức'} ${lines.length} dòng; thay đổi: ${customsChangedFields(before, shipment, { customsLines: 'List khai báo' })}.`);
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'request_change') {
+        const stage = String(record?.stage || '');
+        const reason = String(record?.reason || '').trim().slice(0, 4000);
+        if (!reason) return send(res, 400, { error: 'Vui lòng ghi rõ lý do yêu cầu sửa đổi.' });
+        if (stage === 'sale') {
+          if (!canCustoms && !privileged) return send(res, 403, { error: 'Chỉ Khai báo HQ hoặc Admin được trả Thông tin Sale để sửa.' });
+          if (!['customs_pending', 'customer_confirmation'].includes(shipment.status)) return send(res, 409, { error: 'Không thể trả bước Sale ở trạng thái hiện tại.' });
+          const from = shipment.status; shipment.status = 'sale_required'; delete shipment.saleLockedAt; delete shipment.saleLockedBy;
+          shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'request_change_sale', from, shipment.status, `Yêu cầu sửa đổi Thông tin Sale: ${reason}`);
+        } else if (stage === 'customs') {
+          if (!canCustoms) return send(res, 403, { error: 'Chỉ Khai báo HQ hoặc Admin được mở lại List khai báo.' });
+          if (!['customer_confirmation', 'ready_for_loading'].includes(shipment.status)) return send(res, 409, { error: 'Không thể mở lại List khai báo ở trạng thái hiện tại.' });
+          const from = shipment.status; shipment.status = 'customs_pending'; delete shipment.customsLockedAt; delete shipment.customsLockedBy;
+          shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'request_change_customs', from, shipment.status, `Yêu cầu sửa đổi List khai báo: ${reason}`);
+        } else return send(res, 400, { error: 'Phần dữ liệu cần sửa không hợp lệ.' });
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
       if (action === 'customer_approved' || action === 'customer_requests_edit') {
         if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được xác nhận khách.' });
+        if (shipment.status !== 'customer_confirmation') return send(res, 409, { error: 'Mã hàng chưa ở bước Khai báo xác nhận.' });
         const from = shipment.status, approved = action === 'customer_approved'; shipment.status = approved ? 'ready_for_loading' : 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, action, from, shipment.status, approved ? 'Khai báo xác nhận khách; sẵn sàng xếp xe.' : String(record?.content || 'Khai báo ghi nhận yêu cầu chỉnh sửa thông tin.').slice(0, 4000)); saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
       if (action === 'document_status') {
@@ -965,11 +1005,16 @@ http.createServer(async (req, res) => {
       content = content.toString('utf8')
         // The locked handoff uses a nested srcdoc iframe.  Permit it to call
         // the same-origin API so its view and actions use the real session.
-        .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin allow-downloads"')
+        .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin allow-downloads allow-modals"')
         .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
         .replaceAll('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
         .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
         .replace(';render();\n    })();', ';window.KTT_CUSTOMS_RENDER=render;render();\n    })();')
+        // Drafts, locks and correction requests are enforced by the live API
+        // bridge. Remove the legacy browser-only layers to avoid duplicate
+        // buttons and localStorage state diverging between computers.
+        .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
+        .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));

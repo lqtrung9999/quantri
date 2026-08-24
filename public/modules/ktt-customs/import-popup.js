@@ -135,6 +135,7 @@
   get('#cf-import-save').onclick = save;
   modal.querySelectorAll('.cf-import-close').forEach(button => button.onclick = () => modal.classList.remove('open'));
   modal.onclick = event => { if (event.target === modal) modal.classList.remove('open'); };
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && modal.classList.contains('open')) modal.classList.remove('open'); });
   opener.type = 'button';
   opener.onclick = event => { event.preventDefault(); event.stopPropagation(); get('#cf-import-note').textContent = 'Các mã vừa lưu sẽ xuất hiện ngay trong danh sách công việc chung.'; modal.classList.add('open'); get('#cf-import-paste').focus({ preventScroll: true }); };
   renderPreview();
