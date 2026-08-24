@@ -1002,6 +1002,7 @@ http.createServer(async (req, res) => {
       if (error) return send(res, 500, 'Không thể tải module Khai Báo HQ.', 'text/plain; charset=utf-8');
       const encodeForSrcdoc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
       const sessionBridge = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'live-session-bridge.js'), 'utf8'));
+      const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
       content = content.toString('utf8')
         // The locked handoff uses a nested srcdoc iframe.  Permit it to call
         // the same-origin API so its view and actions use the real session.
@@ -1015,7 +1016,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content

@@ -338,12 +338,14 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'Không thể tải dữ liệu phân quyền.');
     currentUser = payload.user;
+    window.KTT_CUSTOMS_SESSION = { user: currentUser };
     const data = window.KTT_CUSTOMS_DATA;
     if (!Array.isArray(data)) return setTimeout(refresh, 60);
     data.splice(0, data.length, ...(payload.rows || []).map(mapRow));
     if (window.KTT_CUSTOMS_RENDER) window.KTT_CUSTOMS_RENDER();
     applyRoleUi();
     syncConfirmationPresentation();
+    window.dispatchEvent(new CustomEvent('ktt-customs-refreshed'));
   }
   async function saveWorkflowForm(form, draft = false) {
     if (!form || form.dataset.kttSaving === '1') return;
@@ -428,6 +430,7 @@
   window.addEventListener('focus', refreshWhenIdle);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshWhenIdle(); });
   window.setInterval(refreshWhenIdle, 5000);
+  window.KTT_CUSTOMS_REFRESH = refresh;
   const readabilityStyle = document.createElement('style');
   readabilityStyle.textContent = `
     #customs-flow-app .cf-table table{font-size:14px!important}#customs-flow-app .cf-table th,#customs-flow-app .cf-table td{padding:14px 12px!important}
