@@ -34,6 +34,8 @@
 
   const navButtons = [...root.querySelectorAll('.cf-nav button')];
   const processingButton = navButtons.find(button => /Đơn hàng/i.test(button.textContent || ''));
+  const overviewButton = navButtons.find(button => /Tổng quan/i.test(button.textContent || ''));
+  const coordinationButton = navButtons.find(button => /Khai báo\s*&\s*xếp xe/i.test(button.textContent || ''));
   if (processingButton) processingButton.innerHTML = '<span class="ico">▣</span><span>Xử Lý Khai Báo</span>';
 
   function session() { return window.KTT_CUSTOMS_SESSION || {}; }
@@ -105,9 +107,11 @@
   }
   function closeWorkspace() {
     workspace.hidden = true; originalContent.hidden = false;
-    navButtons.forEach(button => button.classList.remove('active')); navButtons[0]?.classList.add('active');
+    navButtons.forEach(button => button.classList.remove('active')); coordinationButton?.classList.add('active');
   }
   processingButton?.addEventListener('click', openWorkspace);
+  overviewButton?.addEventListener('click', closeWorkspace);
+  coordinationButton?.addEventListener('click', closeWorkspace);
   workspace.querySelector('#xp-back').addEventListener('click', closeWorkspace);
   workspace.querySelector('#xp-search').addEventListener('input', render);
   workspace.querySelector('#xp-status').addEventListener('change', render);
