@@ -8,7 +8,7 @@
   const initials = name => String(name || '').split(/\s+/).map(word => word[0]).slice(-2).join('').toUpperCase();
   const localIso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   const saleTeam = sale => { const value = String(sale || '').trim().toLocaleUpperCase('vi-VN'); return value.startsWith('P5') || value.startsWith('TP5') ? 'P5' : value.startsWith('P8') || value.startsWith('TP8') ? 'P8' : ''; };
-  let user, leads = [], activeTab = 'all', currentNote, currentProfile;
+  let user, leads = [], activeTab = 'all', currentNote, currentProfile, createRequestId = '';
   $('#rows').innerHTML = '';
 
   const style = document.createElement('style');
@@ -143,10 +143,10 @@
   $('.filter').onclick = () => { $('.searchbar input').value = ''; document.querySelectorAll('.searchbar select').forEach((element, index) => element.selectedIndex = 0); activeTab = 'all'; render(); };
   $('.tabs').addEventListener('click', event => { const tab = event.target.closest('[data-tab]'); if (!tab) return; activeTab = tab.dataset.tab; render(); });
   $('#rows').addEventListener('click', event => { const row = event.target.closest('tr[data-id]'), lead = row && leads.find(item => item.id === row.dataset.id); if (!lead) return; if (event.target.closest('.customer-name')) openProfile(lead); else if (event.target.closest('.note')) openNotes(lead); });
-  $('.add').onclick = () => formModal.classList.add('open');
+  $('.add').onclick = () => { createRequestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; formModal.classList.add('open'); };
   formModal.querySelector('.close').onclick = formModal.querySelector('.cancel').onclick = () => formModal.classList.remove('open');
   formModal.addEventListener('click', event => { if (event.target === formModal) formModal.classList.remove('open'); });
-  formModal.querySelector('form').onsubmit = async event => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.target)); if (values.link && !/^https?:\/\//i.test(values.link)) values.link = `https://${values.link}`; try { await api('POST', { action: 'create', record: values }); formModal.classList.remove('open'); event.target.reset(); await reload(); } catch (error) { alert(error.message); } };
+  formModal.querySelector('form').onsubmit = async event => { event.preventDefault(); const form = event.currentTarget, button = form.querySelector('.action'); if (form.dataset.saving === '1') return; form.dataset.saving = '1'; button.disabled = true; button.textContent = 'Đang lưu…'; const values = { ...Object.fromEntries(new FormData(form)), requestId: createRequestId || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`) }; if (values.link && !/^https?:\/\//i.test(values.link)) values.link = `https://${values.link}`; try { const result = await api('POST', { action: 'create', record: values }); formModal.classList.remove('open'); form.reset(); createRequestId = ''; leads.unshift(result.record); render(); } catch (error) { alert(error.message); } finally { delete form.dataset.saving; button.disabled = false; button.textContent = 'Lưu khách hàng'; } };
   noteModal.querySelector('.close').onclick = noteModal.querySelector('.cancel').onclick = () => noteModal.classList.remove('open');
   noteModal.addEventListener('click', event => { if (event.target === noteModal) noteModal.classList.remove('open'); });
   $('#save-note').onclick = async () => { const text = $('#note-text').value.trim(); if (!text || !currentNote) return; try { await api('POST', { action: 'addNote', id: currentNote.id, text }); await reload(); openNotes(leads.find(lead => lead.id === currentNote.id)); } catch (error) { alert(error.message); } };

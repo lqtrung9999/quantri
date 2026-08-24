@@ -22,7 +22,8 @@ let larkTokenCache = { value: '', expiresAt: 0 };
 let trackingCache = { value: null, expiresAt: 0 };
 let customsWarehouseSyncCache = { expiresAt: 0 };
 const trackingRate = new Map();
-let crmNewSyncState = { configured: false, ok: false, updatedAt: '', error: '' };
+let crmNewSyncState = { configured: false, ok: false, pending: false, pendingSince: '', updatedAt: '', error: '' };
+let crmNewSyncPromise = null;
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
@@ -64,7 +65,7 @@ function crmNewSyncConfig() {
 async function syncCrmNewRows(rows) {
   const config = crmNewSyncConfig();
   if (!config) {
-    crmNewSyncState = { configured: false, ok: false, updatedAt: '', error: 'Chưa cấu hình Google Sheet sao lưu CRM Mới.' };
+    crmNewSyncState = { ...crmNewSyncState, configured: false, ok: false, error: 'Chưa cấu hình Google Sheet sao lưu CRM Mới.' };
     return crmNewSyncState;
   }
   try {
@@ -74,11 +75,31 @@ async function syncCrmNewRows(rows) {
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.error) throw new Error(body.error || 'Google Sheet không phản hồi.');
-    crmNewSyncState = { configured: true, ok: true, updatedAt: body.updatedAt || new Date().toISOString(), error: '', count: Number(body.count || rows.length) };
+    crmNewSyncState = { configured: true, ok: true, pending: false, pendingSince: '', updatedAt: body.updatedAt || new Date().toISOString(), error: '', count: Number(body.count || rows.length) };
   } catch (error) {
-    crmNewSyncState = { configured: true, ok: false, updatedAt: '', error: error.message || 'Không thể sao lưu CRM Mới.' };
+    crmNewSyncState = { ...crmNewSyncState, configured: true, ok: false, pending: true, error: error.message || 'Không thể sao lưu CRM Mới.' };
   }
   return crmNewSyncState;
+}
+function queueCrmNewSync() {
+  crmNewSyncState = { ...crmNewSyncState, configured: Boolean(crmNewSyncConfig()), pending: true, pendingSince: crmNewSyncState.pendingSince || new Date().toISOString(), error: '' };
+  return crmNewSyncState;
+}
+function runCrmNewSync() {
+  if (!crmNewSyncPromise) crmNewSyncPromise = syncCrmNewRows(crmNewRows()).finally(() => { crmNewSyncPromise = null; });
+  return crmNewSyncPromise;
+}
+function millisecondsUntilCrmNewBackup(hour = 23, minute = 55) {
+  const now = Date.now(), vietnamNow = new Date(now + 7 * 60 * 60 * 1000);
+  let target = Date.UTC(vietnamNow.getUTCFullYear(), vietnamNow.getUTCMonth(), vietnamNow.getUTCDate(), hour, minute) - 7 * 60 * 60 * 1000;
+  if (target <= now) target += 24 * 60 * 60 * 1000;
+  return target - now;
+}
+function scheduleCrmNewBackup() {
+  setTimeout(async () => {
+    if (crmNewSyncState.pending || crmNewRows().length) await runCrmNewSync();
+    scheduleCrmNewBackup();
+  }, millisecondsUntilCrmNewBackup()).unref();
 }
 function larkConfig() {
   if (!fs.existsSync(larkConfigFile)) return null;
@@ -679,7 +700,7 @@ http.createServer(async (req, res) => {
   if (pathname === '/api/crm-new/sync' && req.method === 'POST') {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     if (user.role !== 'admin') return send(res, 403, { error: 'Chỉ Quản trị viên có thể đồng bộ toàn bộ CRM Mới.' });
-    try { return send(res, 200, await syncCrmNewRows(crmNewRows())); }
+    try { return send(res, 200, await runCrmNewSync()); }
     catch (error) { return send(res, 500, { error: error.message || 'Không thể đồng bộ CRM Mới.' }); }
   }
   if (pathname === '/api/crm-new/leads' && req.method === 'POST') {
@@ -691,11 +712,14 @@ http.createServer(async (req, res) => {
       if (action === 'create') {
         const name = String(record?.name || '').trim();
         if (!name || name.length > 150) return send(res, 400, { error: 'Vui lòng nhập tên khách hàng.' });
+        const requestId = String(record?.requestId || '').trim().slice(0, 100);
+        const repeated = requestId && rows.find(row => row.createRequestId === requestId && sameSale(row.sale, user.sale));
+        if (repeated) return send(res, 200, { record: repeated, duplicatePrevented: true, sync: queueCrmNewSync() });
         const now = new Date().toISOString();
         const item = {
           id: crypto.randomUUID(), name, phone: crmNewCleanField('phone', record?.phone), source: crmNewCleanField('source', record?.source || 'Khác'),
           link: crmNewCleanField('link', record?.link), product: crmNewCleanField('product', record?.product), status: '', category: '', result: '',
-          sale: user.sale || user.name, foundAt: crmNewToday(), createdAt: now, updatedAt: now, notes: [],
+          sale: user.sale || user.name, createRequestId: requestId || crypto.randomUUID(), foundAt: crmNewToday(), createdAt: now, updatedAt: now, notes: [],
           history: [{ field: 'created', label: 'Tạo hồ sơ', from: '', to: name, author: crmNewActor(user), userId: user.id, at: now }],
           zaloTimeline: [{ status: '', label: 'Chưa cập nhật', author: crmNewActor(user), userId: user.id, at: now }]
         };
@@ -705,7 +729,7 @@ http.createServer(async (req, res) => {
           item.history.push({ field: 'note', label: 'Ghi chú', from: '', to: initialNote, author: crmNewActor(user), userId: user.id, at: now });
         }
         rows.push(item); saveCrmNewRows(rows);
-        return send(res, 201, { record: item, sync: await syncCrmNewRows(rows) });
+        return send(res, 201, { record: item, sync: queueCrmNewSync() });
       }
       const item = rows.find(row => row.id === id || row.id === record?.id);
       if (!item || !sameSale(item.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể cập nhật khách hàng của mình.' });
@@ -730,7 +754,7 @@ http.createServer(async (req, res) => {
         }
         if (!changes.length) return send(res, 200, { record: item, unchanged: true, sync: crmNewSyncState });
         item.history.push(...changes); item.updatedAt = now; saveCrmNewRows(rows);
-        return send(res, 200, { record: item, sync: await syncCrmNewRows(rows) });
+        return send(res, 200, { record: item, sync: queueCrmNewSync() });
       }
       if (action === 'addNote') {
         const note = String(text || '').trim().slice(0, 4000);
@@ -741,7 +765,7 @@ http.createServer(async (req, res) => {
         item.history = Array.isArray(item.history) ? item.history : [];
         item.history.push({ field: 'note', label: 'Ghi chú', from: '', to: note, author: crmNewActor(user), userId: user.id, at: now });
         item.updatedAt = now; saveCrmNewRows(rows);
-        return send(res, 200, { record: item, sync: await syncCrmNewRows(rows) });
+        return send(res, 200, { record: item, sync: queueCrmNewSync() });
       }
       return send(res, 400, { error: 'Thao tác CRM Mới không hợp lệ.' });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu CRM Mới.' }); }
@@ -971,10 +995,4 @@ http.createServer(async (req, res) => {
   fs.readFile(filePath, (error, content) => error ? send(res, error.code === 'ENOENT' ? 404 : 500, error.code === 'ENOENT' ? 'Không tìm thấy trang.' : 'Không thể tải trang.', 'text/plain; charset=utf-8') : send(res, 200, content, types[path.extname(filePath).toLowerCase()] || 'application/octet-stream'));
 }).listen(port, () => console.log(`Dashboard đang chạy tại http://localhost:${port}`));
 
-setTimeout(() => {
-  if (crmNewSyncConfig()) syncCrmNewRows(crmNewRows());
-}, 5000).unref();
-
-setInterval(() => {
-  if (crmNewSyncConfig()) syncCrmNewRows(crmNewRows());
-}, 10 * 60 * 1000).unref();
+scheduleCrmNewBackup();

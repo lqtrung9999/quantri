@@ -50,11 +50,17 @@ async function waitUntilReady() {
   await waitUntilReady();
 
   const [saleP5, saleP8, managerP5, admin, accountant] = await Promise.all(['sale.p5', 'sale.p8', 'manager.p5', 'admin', 'accountant'].map(login));
-  const created = await crm(saleP5, 'POST', { action: 'create', record: { name: 'Khách A', phone: '0901', source: 'Facebook', product: 'Vải', link: 'https://example.com', note: 'Ghi chú đầu' } });
+  const createPayload = { action: 'create', record: { requestId: 'browser-request-001', name: 'Khách A', phone: '0901', source: 'Facebook', product: 'Vải', link: 'https://example.com', note: 'Ghi chú đầu' } };
+  const created = await crm(saleP5, 'POST', createPayload);
   assert.equal(created.response.status, 201);
+  assert.equal(created.body.sync.pending, true);
   assert.equal(created.body.record.history.length, 2);
   assert.equal(created.body.record.zaloTimeline[0].label, 'Chưa cập nhật');
   const id = created.body.record.id;
+  const repeatedCreate = await crm(saleP5, 'POST', createPayload);
+  assert.equal(repeatedCreate.response.status, 200);
+  assert.equal(repeatedCreate.body.duplicatePrevented, true);
+  assert.equal(repeatedCreate.body.record.id, id);
 
   const updated = await crm(saleP5, 'POST', { action: 'update', record: { id, name: 'Không được đổi', phone: '0902', source: 'TikTok', product: 'Giày', link: 'https://example.org', status: 'Đã kết bạn', category: 'Khách tiềm năng', result: 'Chưa Chốt Được', note: 'Ghi chú sau' } });
   assert.equal(updated.response.status, 200);
@@ -70,7 +76,7 @@ async function waitUntilReady() {
   assert.equal((await crm(admin)).body.rows.length, 1, 'Admin được xem toàn bộ');
   assert.equal((await crm(accountant)).body.rows.length, 1, 'Kế toán được xem toàn bộ');
   assert.equal((await crm(admin, 'POST', { action: 'update', record: { id, phone: '0999' } })).response.status, 403, 'Admin không sửa dữ liệu sale');
-  console.log('CRM Mới: 12 kiểm tra API và phân quyền đã đạt.');
+  console.log('CRM Mới: 16 kiểm tra API, chống trùng và phân quyền đã đạt.');
   if (process.env.CRM_TEST_BROWSER === '1') {
     console.log(`Giữ máy chủ kiểm thử tại http://127.0.0.1:${port}`);
     await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
