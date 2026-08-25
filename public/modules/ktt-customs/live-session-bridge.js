@@ -188,7 +188,7 @@
     ['Giá XHĐ trước thuế', row => row.invoicePrice],
     ['Số lượng khai báo', row => row.qty1],
     ['Đơn vị khai báo', row => row.unit1],
-    ['Mức Thuế NK', row => row.importRate],
+    ['Thuế NK %', row => row.importRate],
     ['Thuế NK', row => row.importTax],
     ['VAT (%)', row => row.vatRate],
     ['Thuế VAT', row => row.vatTax],
@@ -331,7 +331,7 @@
     if (!table || table.dataset.kttVatColumn === '1') return;
     table.querySelectorAll('thead th').forEach(header => {
       if (/^Giá khai/i.test(header.textContent.trim())) header.textContent = 'Giá khai USD (tự tính)';
-      if (/^Thuế NK\s*%/i.test(header.textContent.trim())) header.textContent = 'Mức Thuế NK (5, 10...)';
+      if (/^Thuế NK\s*%/i.test(header.textContent.trim())) header.textContent = 'Thuế NK %';
     });
     table.dataset.kttVatColumn = '1';
     const totalHeader = [...table.querySelectorAll('thead th')].find(header => /Tổng thuế/i.test(header.textContent || ''));
