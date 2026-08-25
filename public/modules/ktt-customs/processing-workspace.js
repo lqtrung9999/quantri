@@ -29,7 +29,6 @@
   workspace.innerHTML = `
     <div class="xp-head"><div><h1>Xử Lý Khai Báo</h1><p>Nhập liệu Sale và Khai báo trên cùng một bảng. Các cột nhận diện được giữ cố định khi cuộn ngang.</p></div><button id="xp-back" class="cf-action">← Danh sách công việc</button></div>
     <div class="xp-tools"><div class="xp-search"><span>⌕</span><input id="xp-search" placeholder="Tìm mã hàng, mã khách, tên hàng, Sale..."></div><select id="xp-status"><option value="">Mọi trạng thái</option><option value="sale_required">Chờ Sale bổ sung</option><option value="customs_pending">Chờ Khai báo lên list</option><option value="customer_confirmation">Chờ xác nhận</option><option value="ready_for_loading">Sẵn sàng xếp xe</option></select><button id="xp-refresh" class="cf-action">↻ Cập nhật</button></div>
-    <datalist id="xp-unit-options"><option value="Cái"><option value="Bộ"><option value="Kg"><option value="Cuộn"><option value="Túi"><option value="Quyển"><option value="Bó"></datalist>
     <div id="xp-summary" class="xp-summary"></div><div id="xp-list" class="xp-list"></div>`;
   main.appendChild(workspace);
 
@@ -41,12 +40,19 @@
 
   function session() { return window.KTT_CUSTOMS_SESSION || {}; }
   function rows() { return Array.isArray(window.KTT_CUSTOMS_DATA) ? window.KTT_CUSTOMS_DATA : []; }
+  function unitSelect(field, value, editable, scope, rowIndex) {
+    const units = ['Cái', 'Bộ', 'Kg', 'Cuộn', 'Túi', 'Quyển', 'Bó'];
+    const current = String(value || '').trim();
+    const known = units.some(unit => unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN'));
+    const options = ['<option value="">— Để trống —</option>', ...units.map(unit => `<option value="${unit}" ${unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN') ? 'selected' : ''}>${unit}</option>`), ...(!known && current ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : []), '<option value="__custom__">Nhập đơn vị khác…</option>'];
+    return `<select class="xp-unit-select" data-${scope}-field="${field}" data-row="${rowIndex}" ${editable ? '' : 'disabled'}>${options.join('')}</select>`;
+  }
   function input(field, value, editable, scope, rowIndex) {
     const longText = field === 'description' || field === 'en' || field === 'vi';
     const longTextClass = field === 'description' ? 'sale-text' : field === 'en' ? 'english-text' : 'declaration-text';
     if (longText) return `<textarea class="long-text ${longTextClass}" rows="3" data-${scope}-field="${field}" data-row="${rowIndex}" ${editable ? '' : 'disabled'}>${esc(value)}</textarea>`;
-    const list = field === 'unit' || field === 'unit1' ? ' list="xp-unit-options"' : '';
-    return `<input${list} data-${scope}-field="${field}" data-row="${rowIndex}" value="${esc(value)}" ${editable ? '' : 'disabled'}>`;
+    if (field === 'unit' || field === 'unit1') return unitSelect(field, value, editable, scope, rowIndex);
+    return `<input data-${scope}-field="${field}" data-row="${rowIndex}" value="${esc(value)}" ${editable ? '' : 'disabled'}>`;
   }
   function shipmentCard(item) {
     const user = session().user;
@@ -112,6 +118,14 @@
     if (event.target.closest('.xp-customs-draft')) save(card, 'save_customs_draft', { customsLines: customsPayload(card) }, 'Đã lưu nháp List khai báo.');
     if (event.target.closest('.xp-customs-submit')) save(card, 'save_customs', { customsLines: customsPayload(card) }, 'Đã gửi Khai báo xác nhận và khóa List khai báo.');
   });
+  workspace.addEventListener('change', event => {
+    const select = event.target.closest('.xp-unit-select');
+    if (!select || select.value !== '__custom__') return;
+    const custom = window.prompt('Nhập đơn vị khác:');
+    if (!custom?.trim()) { select.value = ''; return; }
+    const option = document.createElement('option'); option.value = custom.trim(); option.textContent = custom.trim(); option.selected = true;
+    select.insertBefore(option, select.lastElementChild);
+  });
   function openWorkspace() {
     originalContent.hidden = true; workspace.hidden = false;
     navButtons.forEach(button => button.classList.remove('active')); processingButton?.classList.add('active'); render();
@@ -133,7 +147,7 @@
   style.textContent = `
     #cf-processing-workspace{padding:18px;background:#f4f7fb;min-height:calc(100vh - 68px);color:#172033;font-size:12px}#cf-processing-workspace[hidden]{display:none!important}
     .xp-head,.xp-tools,.xp-card-head,.xp-actions{display:flex;align-items:center;justify-content:space-between;gap:14px}.xp-head h1{margin:0;font-size:22px}.xp-head p{margin:4px 0 0;color:#6c7990;font-size:12px}.xp-tools{margin:14px 0 9px;padding:10px;background:#fff;border:1px solid #dfe6f0;border-radius:11px;justify-content:flex-start}.xp-search{position:relative;flex:1}.xp-search span{position:absolute;left:11px;top:8px;color:#78859a}.xp-search input{width:100%;height:34px;padding:0 10px 0 33px;border:1px solid #d6dfeb;border-radius:8px;font-size:12px}.xp-summary{color:#66758d;font-size:11px;margin:0 2px 9px}.xp-list{display:grid;gap:13px}.xp-card{background:#fff;border:1px solid #dce4ef;border-radius:13px;overflow:hidden;box-shadow:0 5px 16px #21314d0b}.xp-card-head{padding:10px 13px;border-bottom:1px solid #e3e9f2}.xp-card-head>div{display:flex;align-items:center;gap:10px}.xp-card-head b{font-size:14px}.xp-card-head span:not(.xp-badge){color:#69778e;font-size:11px}.xp-card-head small{color:#6e7c92;font-size:10px}.xp-badge{padding:6px 8px;border-radius:7px;font-size:10px;font-weight:800;background:#edf2f8;color:#53627a}.xp-badge.sale_required{background:#eaf2ff;color:#3172c2}.xp-badge.customs_pending{background:#f1ebff;color:#7251ca}.xp-badge.customer_confirmation{background:#fff0df;color:#c86b05}.xp-badge.ready_for_loading{background:#e8f7ee;color:#168254}
-    .xp-table-wrap{max-width:100%;overflow:auto;border-bottom:1px solid #e0e7f0;scrollbar-gutter:stable}.xp-table{border-collapse:separate!important;border-spacing:0;min-width:3250px!important;width:max-content!important;font-size:11px!important}.xp-table th,.xp-table td{height:auto!important;padding:5px!important;border-right:1px solid #dfe6ef;border-top:1px solid #e7ecf3;background:#fff;vertical-align:top}.xp-table thead th{position:sticky;top:0;z-index:3;min-width:108px;padding:7px 6px!important;white-space:normal;font-size:11px!important}.xp-table .sale-group,.xp-table .sale-head{background:#e8f4d9!important;color:#2c4826}.xp-table .customs-group,.xp-table .customs-head{background:#eee7fb!important;color:#4e3a78}.xp-table .pin{position:sticky;z-index:4;background:#f8fafc!important}.xp-table .pin.code{left:0;min-width:112px;width:112px}.xp-table .pin.product{left:112px;min-width:150px;width:150px;box-shadow:5px 0 10px #263b5b16}.xp-table thead .pin{z-index:6}.xp-table td.pin small{display:block;margin-top:4px;color:#7b889b}.xp-table input,.xp-table textarea{box-sizing:border-box;width:108px;min-width:108px;height:32px;border:1px solid #cfd9e7;border-radius:6px;padding:5px 6px;font:11px/1.35 system-ui;background:#fff;color:#172033}.xp-table textarea.long-text{height:72px;resize:vertical;white-space:pre-wrap}.xp-table textarea.sale-text{width:360px;min-width:360px}.xp-table textarea.english-text,.xp-table textarea.declaration-text{width:430px;min-width:430px;height:80px}.xp-table input:disabled,.xp-table textarea:disabled{border-color:transparent;background:#f3f6fa;color:#536178;opacity:1}.xp-actions{padding:9px 13px}.xp-actions>span{color:#68768c;font-size:11px}.xp-actions>div{display:flex;gap:7px}.xp-actions .cf-action,.xp-tools .cf-action,.xp-tools select{font-size:11px!important;height:34px}.xp-empty{padding:25px;text-align:center;background:#fff;border:1px solid #dce4ef;border-radius:12px;color:#738098}@media(max-width:900px){#cf-processing-workspace{padding:12px}.xp-head{align-items:flex-start}.xp-head p{max-width:620px}.xp-card-head{align-items:flex-start;flex-direction:column}}
+    .xp-table-wrap{max-width:100%;overflow:auto;border-bottom:1px solid #e0e7f0;scrollbar-gutter:stable}.xp-table{border-collapse:separate!important;border-spacing:0;min-width:3250px!important;width:max-content!important;font-size:11px!important}.xp-table th,.xp-table td{height:auto!important;padding:5px!important;border-right:1px solid #dfe6ef;border-top:1px solid #e7ecf3;background:#fff;vertical-align:top}.xp-table thead th{position:sticky;top:0;z-index:3;min-width:108px;padding:7px 6px!important;white-space:normal;font-size:11px!important}.xp-table .sale-group,.xp-table .sale-head{background:#e8f4d9!important;color:#2c4826}.xp-table .customs-group,.xp-table .customs-head{background:#eee7fb!important;color:#4e3a78}.xp-table .pin{position:sticky;z-index:4;background:#f8fafc!important}.xp-table .pin.code{left:0;min-width:112px;width:112px}.xp-table .pin.product{left:112px;min-width:150px;width:150px;box-shadow:5px 0 10px #263b5b16}.xp-table thead .pin{z-index:6}.xp-table td.pin small{display:block;margin-top:4px;color:#7b889b}.xp-table input,.xp-table textarea,.xp-table .xp-unit-select{box-sizing:border-box;width:108px;min-width:108px;height:32px;border:1px solid #cfd9e7;border-radius:6px;padding:5px 6px;font:11px/1.35 system-ui;background:#fff;color:#172033}.xp-table textarea.long-text{height:72px;resize:vertical;white-space:pre-wrap}.xp-table textarea.sale-text{width:360px;min-width:360px}.xp-table textarea.english-text{width:215px;min-width:215px;height:80px}.xp-table textarea.declaration-text{width:430px;min-width:430px;height:80px}.xp-table input:disabled,.xp-table textarea:disabled,.xp-table .xp-unit-select:disabled{border-color:transparent;background:#f3f6fa;color:#536178;opacity:1}.xp-actions{padding:9px 13px}.xp-actions>span{color:#68768c;font-size:11px}.xp-actions>div{display:flex;gap:7px}.xp-actions .cf-action,.xp-tools .cf-action,.xp-tools select{font-size:11px!important;height:34px}.xp-empty{padding:25px;text-align:center;background:#fff;border:1px solid #dce4ef;border-radius:12px;color:#738098}@media(max-width:900px){#cf-processing-workspace{padding:12px}.xp-head{align-items:flex-start}.xp-head p{max-width:620px}.xp-card-head{align-items:flex-start;flex-direction:column}}
   `;
   document.head.appendChild(style);
 })();
