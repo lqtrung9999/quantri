@@ -307,8 +307,10 @@ async function syncCustomsWarehouseRows() {
 }
 function numeric(value) { const normalizedValue = String(value ?? '').replace(/[,\s]/g, ''); const output = Number(normalizedValue); return Number.isFinite(output) ? output : 0; }
 function cleanCustomsLine(line, index) {
-  const quantity1 = numeric(line?.quantity1), declaredPriceUsd = numeric(line?.declaredPriceUsd), description = String(line?.goodsDescription || '').trim().slice(0, 3000);
+  const quantity1 = numeric(line?.quantity1), description = String(line?.goodsDescription || '').trim().slice(0, 3000);
   const exchangeRate = customsSettings().exchangeRateUsdVnd, importTaxRate = numeric(line?.importTaxRate), vatRate = numeric(line?.vatRate);
+  const invoicePriceBeforeTax = numeric(line?.invoicePriceBeforeTax);
+  const declaredPriceUsd = exchangeRate > 0 ? Math.round((invoicePriceBeforeTax / exchangeRate * (98 - importTaxRate) / 100) * 1000) / 1000 : 0;
   const taxableVnd = quantity1 * declaredPriceUsd * exchangeRate;
   const importTaxAmount = taxableVnd * importTaxRate / 100;
   const vatTaxAmount = (importTaxAmount + taxableVnd) * vatRate / 100;

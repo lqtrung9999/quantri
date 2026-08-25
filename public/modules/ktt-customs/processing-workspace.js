@@ -21,7 +21,7 @@
   const customsFields = [
     ['en', 'Tên tiếng Anh', 'text'], ['vi', 'Mô tả hàng hóa', 'text'], ['note', 'NOTE', 'text'],
     ['invoicePrice', 'Giá XHĐ trước thuế', 'text'], ['hs', 'Mã HS', 'text'], ['qty1', 'Số lượng khai báo', 'number'], ['unit1', 'Đơn vị khai báo', 'text'],
-    ['price', 'Giá khai USD', 'number'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
+    ['price', 'Giá khai USD (tự tính)', 'readonly'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Mức Thuế NK (5, 10...)', 'number'],
     ['importTax', 'Thuế NK', 'readonly'], ['vatRate', 'VAT %', 'number'], ['vatTax', 'Thuế VAT', 'readonly'], ['totalTax', 'Tổng thuế VNĐ', 'readonly']
   ];
 
@@ -79,10 +79,13 @@
     const rate = n(session().settings?.exchangeRateUsdVnd);
     card.querySelectorAll('tbody tr').forEach(tr => {
       const qty = n(tr.querySelector('[data-customs-field="qty1"]')?.value);
-      const price = n(tr.querySelector('[data-customs-field="price"]')?.value);
+      const invoicePrice = n(tr.querySelector('[data-customs-field="invoicePrice"]')?.value);
+      const priceInput = tr.querySelector('[data-customs-field="price"]');
       const amount = tr.querySelector('[data-customs-field="amount"]');
       const importRate = n(tr.querySelector('[data-customs-field="importRate"]')?.value);
       const vatRate = n(tr.querySelector('[data-customs-field="vatRate"]')?.value);
+      const price = rate > 0 ? Math.round((invoicePrice / rate * (98 - importRate) / 100) * 1000) / 1000 : 0;
+      if (priceInput) priceInput.value = price ? price.toFixed(3) : '';
       const base = qty * price * rate;
       const importTax = base * importRate / 100;
       const vatTax = (base + importTax) * vatRate / 100;

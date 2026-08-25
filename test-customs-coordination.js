@@ -12,6 +12,8 @@ const transition = (from, action) => ({
 const line = { quantity1: 25, declaredPriceUsd: 4.8, goodsDescription: 'Khóa cửa tay gạt bằng hợp kim.' };
 assert.equal(Number(line.quantity1) * Number(line.declaredPriceUsd), 120, 'Tổng USD phải bằng SL1 × giá khai');
 const exchangeRate = 25000, importRate = 5, vatRate = 8;
+const declaredPrice = Math.round((2500000 / exchangeRate * (98 - importRate) / 100) * 1000) / 1000;
+assert.equal(declaredPrice.toFixed(3), '93.000', 'Giá khai USD phải tự tính và làm tròn 3 chữ số thập phân');
 const taxableVnd = 100 * 2 * exchangeRate;
 const importTax = taxableVnd * importRate / 100;
 const vatTax = (importTax + taxableVnd) * vatRate / 100;

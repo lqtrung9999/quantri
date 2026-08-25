@@ -188,7 +188,7 @@
     ['Giá XHĐ trước thuế', row => row.invoicePrice],
     ['Số lượng khai báo', row => row.qty1],
     ['Đơn vị khai báo', row => row.unit1],
-    ['Thuế NK (%)', row => row.importRate],
+    ['Mức Thuế NK', row => row.importRate],
     ['Thuế NK', row => row.importTax],
     ['VAT (%)', row => row.vatRate],
     ['Thuế VAT', row => row.vatTax],
@@ -329,6 +329,10 @@
   function installPopupVatTaxColumn() {
     const table = document.querySelector('#cf-customs-form .cf-customs-table');
     if (!table || table.dataset.kttVatColumn === '1') return;
+    table.querySelectorAll('thead th').forEach(header => {
+      if (/^Giá khai/i.test(header.textContent.trim())) header.textContent = 'Giá khai USD (tự tính)';
+      if (/^Thuế NK\s*%/i.test(header.textContent.trim())) header.textContent = 'Mức Thuế NK (5, 10...)';
+    });
     table.dataset.kttVatColumn = '1';
     const totalHeader = [...table.querySelectorAll('thead th')].find(header => /Tổng thuế/i.test(header.textContent || ''));
     if (totalHeader) totalHeader.insertAdjacentHTML('beforebegin', '<th>Thuế VAT</th>');
@@ -342,10 +346,13 @@
     document.querySelectorAll('#cf-customs-form .cf-customs-row').forEach(row => {
       const value = name => Number(String(row.querySelector(`[data-custom-field="${name}"]`)?.value || '').replace(/,/g, '')) || 0;
       const set = (name, number) => { const field = row.querySelector(`[data-custom-field="${name}"]`); if (field) { field.readOnly = true; field.value = number ? number.toLocaleString('en-US', { maximumFractionDigits: 2 }) : ''; } };
-      const base = value('qty1') * value('price') * rate;
-      const importTax = base * value('importRate') / 100;
+      const importRate = value('importRate');
+      const price = rate > 0 ? Math.round((value('invoicePrice') / rate * (98 - importRate) / 100) * 1000) / 1000 : 0;
+      const priceField = row.querySelector('[data-custom-field="price"]'); if (priceField) { priceField.readOnly = true; priceField.value = price ? price.toFixed(3) : ''; }
+      const base = value('qty1') * price * rate;
+      const importTax = base * importRate / 100;
       const vatTax = (importTax + base) * value('vatRate') / 100;
-      set('amount', value('qty1') * value('price')); set('importTax', importTax); set('vatTax', vatTax); set('totalTax', importTax + vatTax);
+      set('amount', value('qty1') * price); set('importTax', importTax); set('vatTax', vatTax); set('totalTax', importTax + vatTax);
     });
   }
   function workflowButton(label, className, onClick) {
