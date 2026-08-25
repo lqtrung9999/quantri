@@ -11,6 +11,13 @@ const transition = (from, action) => ({
 }[action] || null);
 const line = { quantity1: 25, declaredPriceUsd: 4.8, goodsDescription: 'Khóa cửa tay gạt bằng hợp kim.' };
 assert.equal(Number(line.quantity1) * Number(line.declaredPriceUsd), 120, 'Tổng USD phải bằng SL1 × giá khai');
+const exchangeRate = 25000, importRate = 5, vatRate = 8;
+const taxableVnd = 100 * 2 * exchangeRate;
+const importTax = taxableVnd * importRate / 100;
+const vatTax = (importTax + taxableVnd) * vatRate / 100;
+assert.equal(importTax, 250000, 'Thuế NK phải theo số lượng × giá khai × tỉ giá × % thuế NK');
+assert.equal(vatTax, 420000, 'Thuế VAT phải tính trên trị giá tính thuế cộng Thuế NK');
+assert.equal(importTax + vatTax, 670000, 'Tổng thuế phải bằng Thuế NK cộng Thuế VAT');
 assert.equal(line.goodsDescription.length, 30, 'Đếm ký tự mô tả phải chính xác');
 assert.equal(transition('sale_required', 'sale_submit'), 'customs_pending');
 assert.equal(transition('customs_pending', 'request_supplement'), 'sale_required');

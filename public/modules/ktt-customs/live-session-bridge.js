@@ -30,7 +30,7 @@
     invoicePrice: line.invoicePriceBeforeTax || '', hs: line.hsCode || '', qty1: line.quantity1 || '', unit1: line.unit1 || '',
     qty2: line.quantity2 || '', unit2: line.unit2 || '', price: line.declaredPriceUsd || '', packs: line.packageCount || '',
     net: line.netWeightKg || '', gross: line.grossWeightKg || '', amount: line.totalUsd || '', importRate: line.importTaxRate || '',
-    importTax: line.importTaxAmount || '', vatRate: line.vatRate || '', totalTax: line.totalTaxVnd || '', charCount: (line.goodsDescription || '').length
+    importTax: line.importTaxAmount || '', vatRate: line.vatRate || '', vatTax: line.vatTaxAmount || '', totalTax: line.totalTaxVnd || '', charCount: (line.goodsDescription || '').length
   });
   // The locked workflow renders the LIST KHAI BÁO badge from `row.customs`.
   // API data is stored as `customsLines`, so expose its first row in the
@@ -104,7 +104,7 @@
   function customsLines(form) {
     return [...form.querySelectorAll('[data-custom-line]')].map((row, index) => {
       const f = name => row.querySelector(`[data-custom-field="${name}"]`)?.value?.trim() || '';
-      return { id: row.dataset.customLine || `customs-${index}`, englishName: f('en'), goodsDescription: f('vi'), note: f('note'), invoicePriceBeforeTax: f('invoicePrice'), hsCode: f('hs'), quantity1: f('qty1'), unit1: f('unit1'), quantity2: f('qty2'), unit2: f('unit2'), declaredPriceUsd: f('price'), packageCount: f('packs'), netWeightKg: f('net'), grossWeightKg: f('gross'), importTaxRate: f('importRate'), importTaxAmount: f('importTax'), vatRate: f('vatRate'), totalTaxVnd: f('totalTax') };
+      return { id: row.dataset.customLine || `customs-${index}`, englishName: f('en'), goodsDescription: f('vi'), note: f('note'), invoicePriceBeforeTax: f('invoicePrice'), hsCode: f('hs'), quantity1: f('qty1'), unit1: f('unit1'), quantity2: f('qty2'), unit2: f('unit2'), declaredPriceUsd: f('price'), packageCount: f('packs'), netWeightKg: f('net'), grossWeightKg: f('gross'), importTaxRate: f('importRate'), importTaxAmount: f('importTax'), vatRate: f('vatRate'), vatTaxAmount: f('vatTax'), totalTaxVnd: f('totalTax') };
     }).filter(line => line.goodsDescription || line.hsCode);
   }
   function allowSale() { return ['sale', 'manager', 'admin'].includes(currentUser?.role); }
@@ -186,14 +186,12 @@
     ['STT', (_, index) => String(index + 1)],
     ['Mô tả hàng hóa', row => row.vi],
     ['Giá XHĐ trước thuế', row => row.invoicePrice],
-    ['Mã HS', row => row.hs],
-    ['SL1', row => row.qty1],
-    ['ĐVT', row => row.unit1],
-    ['Giá khai (USD)', row => row.price],
-    ['Tổng USD', row => row.amount],
+    ['Số lượng khai báo', row => row.qty1],
+    ['Đơn vị khai báo', row => row.unit1],
     ['Thuế NK (%)', row => row.importRate],
     ['Thuế NK', row => row.importTax],
     ['VAT (%)', row => row.vatRate],
+    ['Thuế VAT', row => row.vatTax],
     ['Tổng thuế (VNĐ)', row => row.totalTax]
   ];
   const displayValue = value => {
@@ -241,7 +239,7 @@
     const shipment = selectedShipment();
     const rows = confirmationRows(shipment);
     if (!shipment || !rows.length) throw new Error('Chưa có dữ liệu khai báo để tải ảnh.');
-    const widths = [135, 52, 280, 130, 105, 62, 68, 125, 115, 98, 120, 78, 150];
+    const widths = [135, 52, 330, 145, 125, 135, 105, 135, 85, 135, 155];
     const sheetWidth = widths.reduce((sum, value) => sum + value, 0);
     const scale = 2, padding = 32, titleHeight = 88, headerHeight = 62, lineHeight = 24;
     const measure = document.createElement('canvas').getContext('2d');
@@ -324,7 +322,31 @@
     disablePane('#cf-pane-accounting', currentUser?.role !== 'admin');
     removeLotPresentation();
     normalizeDeclarationUnitControls();
+    installPopupVatTaxColumn();
+    calculatePopupTaxes();
     installWorkflowControls();
+  }
+  function installPopupVatTaxColumn() {
+    const table = document.querySelector('#cf-customs-form .cf-customs-table');
+    if (!table || table.dataset.kttVatColumn === '1') return;
+    table.dataset.kttVatColumn = '1';
+    const totalHeader = [...table.querySelectorAll('thead th')].find(header => /Tổng thuế/i.test(header.textContent || ''));
+    if (totalHeader) totalHeader.insertAdjacentHTML('beforebegin', '<th>Thuế VAT</th>');
+    table.querySelectorAll('tbody tr').forEach(row => {
+      const total = row.querySelector('[data-custom-field="totalTax"]')?.closest('td');
+      if (total) total.insertAdjacentHTML('beforebegin', '<td><input data-custom-field="vatTax" readonly placeholder="Thuế VAT"></td>');
+    });
+  }
+  function calculatePopupTaxes() {
+    const rate = Number(window.KTT_CUSTOMS_SESSION?.settings?.exchangeRateUsdVnd || 0);
+    document.querySelectorAll('#cf-customs-form .cf-customs-row').forEach(row => {
+      const value = name => Number(String(row.querySelector(`[data-custom-field="${name}"]`)?.value || '').replace(/,/g, '')) || 0;
+      const set = (name, number) => { const field = row.querySelector(`[data-custom-field="${name}"]`); if (field) { field.readOnly = true; field.value = number ? number.toLocaleString('en-US', { maximumFractionDigits: 2 }) : ''; } };
+      const base = value('qty1') * value('price') * rate;
+      const importTax = base * value('importRate') / 100;
+      const vatTax = (importTax + base) * value('vatRate') / 100;
+      set('amount', value('qty1') * value('price')); set('importTax', importTax); set('vatTax', vatTax); set('totalTax', importTax + vatTax);
+    });
   }
   function workflowButton(label, className, onClick) {
     const button = document.createElement('button');
@@ -373,7 +395,7 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'Không thể tải dữ liệu phân quyền.');
     currentUser = payload.user;
-    window.KTT_CUSTOMS_SESSION = { user: currentUser };
+    window.KTT_CUSTOMS_SESSION = { user: currentUser, settings: payload.settings || {} };
     const data = window.KTT_CUSTOMS_DATA;
     if (!Array.isArray(data)) return setTimeout(refresh, 60);
     data.splice(0, data.length, ...(payload.rows || []).map(mapRow));
@@ -413,6 +435,17 @@
     if (form.id !== 'cf-sale-form' && form.id !== 'cf-customs-form') return;
     event.preventDefault(); event.stopImmediatePropagation();
     saveWorkflowForm(form);
+  }, true);
+  document.addEventListener('input', event => {
+    const field = event.target.closest('#cf-customs-form [data-custom-field], #cf-sale-form [data-field]');
+    if (!field) return;
+    const numeric = ['packs', 'productsPerPack', 'qty', 'invoicePrice', 'qty1', 'price', 'amount', 'importRate', 'importTax', 'vatRate', 'vatTax', 'totalTax'];
+    const name = field.dataset.customField || field.dataset.field;
+    if (numeric.includes(name) && !field.readOnly) {
+      const raw = field.value.replace(/[^0-9.]/g, '');
+      field.value = raw ? (Number(raw) || 0).toLocaleString('en-US', { maximumFractionDigits: 4 }) : '';
+    }
+    calculatePopupTaxes();
   }, true);
   // The original handoff attaches its own form handler.  Intercept the actual
   // save-button click as well, preventing that demo-only handler from

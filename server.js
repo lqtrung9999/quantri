@@ -12,7 +12,8 @@ const crmNewSyncConfigFile = path.join(__dirname, 'crm-new-sync-config.json');
 const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json');
 const customerManagementDataFile = path.join(__dirname, 'customer-management-data.json');
 const customsDataFile = path.join(__dirname, 'customs-coordination-data.json');
-const customsDataEpoch = 'warehouse-paste-only-v1';
+const customsSettingsFile = path.join(__dirname, 'customs-settings.json');
+const customsDataEpoch = 'warehouse-paste-only-v2-tax-formulas';
 const customsReferenceFile = path.join(__dirname, 'customs-declared-goods.json');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
@@ -224,6 +225,18 @@ function saveCustomsRows(rows) {
   fs.writeFileSync(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, customsDataFile);
 }
+function customsSettings() {
+  if (!fs.existsSync(customsSettingsFile)) return { exchangeRateUsdVnd: 0, exchangeRateUpdatedAt: '', exchangeRateUpdatedBy: '', history: [] };
+  try {
+    const value = JSON.parse(fs.readFileSync(customsSettingsFile, 'utf8'));
+    return value && typeof value === 'object' ? { exchangeRateUsdVnd: numeric(value.exchangeRateUsdVnd), exchangeRateUpdatedAt: String(value.exchangeRateUpdatedAt || ''), exchangeRateUpdatedBy: String(value.exchangeRateUpdatedBy || ''), history: Array.isArray(value.history) ? value.history : [] } : { exchangeRateUsdVnd: 0, exchangeRateUpdatedAt: '', exchangeRateUpdatedBy: '', history: [] };
+  } catch { throw new Error('Cấu hình tỉ giá Khai Báo HQ không hợp lệ.'); }
+}
+function saveCustomsSettings(settings) {
+  const temporary = `${customsSettingsFile}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, customsSettingsFile);
+}
 function customsReferences() {
   if (!fs.existsSync(customsReferenceFile)) return [];
   try { const rows = JSON.parse(fs.readFileSync(customsReferenceFile, 'utf8')); return Array.isArray(rows) ? rows : (Array.isArray(rows.records) ? rows.records : []); }
@@ -295,7 +308,11 @@ async function syncCustomsWarehouseRows() {
 function numeric(value) { const normalizedValue = String(value ?? '').replace(/[,\s]/g, ''); const output = Number(normalizedValue); return Number.isFinite(output) ? output : 0; }
 function cleanCustomsLine(line, index) {
   const quantity1 = numeric(line?.quantity1), declaredPriceUsd = numeric(line?.declaredPriceUsd), description = String(line?.goodsDescription || '').trim().slice(0, 3000);
-  return { id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, englishName: String(line?.englishName || '').trim().slice(0, 500), goodsDescription: description, note: String(line?.note || '').trim().slice(0, 1000), invoicePriceBeforeTax: String(line?.invoicePriceBeforeTax || '').trim().slice(0, 100), hsCode: String(line?.hsCode || '').trim().slice(0, 30), quantity1, unit1: String(line?.unit1 || '').trim().slice(0, 30), quantity2: numeric(line?.quantity2), unit2: String(line?.unit2 || '').trim().slice(0, 30), declaredPriceUsd, packageCount: numeric(line?.packageCount), netWeightKg: numeric(line?.netWeightKg), grossWeightKg: numeric(line?.grossWeightKg), totalUsd: quantity1 * declaredPriceUsd, importTaxRate: numeric(line?.importTaxRate), importTaxAmount: numeric(line?.importTaxAmount), vatRate: numeric(line?.vatRate), totalTaxVnd: numeric(line?.totalTaxVnd), characterCount: description.length };
+  const exchangeRate = customsSettings().exchangeRateUsdVnd, importTaxRate = numeric(line?.importTaxRate), vatRate = numeric(line?.vatRate);
+  const taxableVnd = quantity1 * declaredPriceUsd * exchangeRate;
+  const importTaxAmount = taxableVnd * importTaxRate / 100;
+  const vatTaxAmount = (importTaxAmount + taxableVnd) * vatRate / 100;
+  return { id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, englishName: String(line?.englishName || '').trim().slice(0, 500), goodsDescription: description, note: String(line?.note || '').trim().slice(0, 1000), invoicePriceBeforeTax: String(line?.invoicePriceBeforeTax || '').trim().slice(0, 100), hsCode: String(line?.hsCode || '').trim().slice(0, 30), quantity1, unit1: String(line?.unit1 || 'Cái').trim().slice(0, 30), quantity2: numeric(line?.quantity2), unit2: String(line?.unit2 || '').trim().slice(0, 30), declaredPriceUsd, packageCount: numeric(line?.packageCount), netWeightKg: numeric(line?.netWeightKg), grossWeightKg: numeric(line?.grossWeightKg), totalUsd: quantity1 * declaredPriceUsd, exchangeRateUsdVnd: exchangeRate, importTaxRate, importTaxAmount, vatRate, vatTaxAmount, totalTaxVnd: importTaxAmount + vatTaxAmount, characterCount: description.length };
 }
 function crmNewToday() {
   const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts().filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
@@ -873,7 +890,7 @@ http.createServer(async (req, res) => {
       const query = new URL(req.url, 'https://dashboard.local').searchParams;
       const term = String(query.get('reference') || '').trim().toLocaleLowerCase('vi-VN');
       const references = term ? customsReferences().filter(row => `${row.hsCode || row[1] || ''} ${row.goodsName || row[2] || ''}`.toLocaleLowerCase('vi-VN').includes(term)).slice(0, 15) : [];
-      return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, user: profile(user) });
+      return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, settings: customsSettings(), user: profile(user) });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/customs-coordination' && req.method === 'POST') {
@@ -885,6 +902,22 @@ http.createServer(async (req, res) => {
       const canWarehouse = privileged || user.role === 'manager' || user.role === 'warehouse_cn';
       const canCustoms = privileged || user.role === 'customs_declaration';
       const canAccounting = privileged || user.role === 'accountant';
+      if (action === 'update_exchange_rate') {
+        if (!canCustoms) return send(res, 403, { error: 'Chỉ Khai báo HQ hoặc Admin được cập nhật tỉ giá.' });
+        const rate = numeric(record?.exchangeRateUsdVnd);
+        if (!(rate > 0)) return send(res, 400, { error: 'Tỉ giá USD/VND phải lớn hơn 0.' });
+        const settings = customsSettings(), now = new Date().toISOString();
+        settings.exchangeRateUsdVnd = rate; settings.exchangeRateUpdatedAt = now; settings.exchangeRateUpdatedBy = user.name;
+        settings.history = Array.isArray(settings.history) ? settings.history : [];
+        settings.history.push({ id: crypto.randomUUID(), rate, actorId: user.id, actor: user.name, createdAt: now });
+        saveCustomsSettings(settings);
+        const rows = customsRows();
+        rows.forEach(shipment => {
+          shipment.customsLines = (shipment.customsLines || []).map(cleanCustomsLine);
+          if (shipment.customsLines.length) customsHistory(shipment, user, 'exchange_rate_recalculated', shipment.status, shipment.status, `Cập nhật tỉ giá USD/VND ${rate.toLocaleString('en-US')}; hệ thống tính lại các khoản thuế.`);
+        });
+        saveCustomsRows(rows); return send(res, 200, { settings });
+      }
       if (action === 'bulk_import_warehouse') {
         if (!canWarehouse) return send(res, 403, { error: 'Chỉ Kho TQ hoặc Quản lý được nhập bảng hàng về kho.' });
         const incoming = Array.isArray(record?.rows) ? record.rows.slice(0, 1000) : [];
