@@ -29,6 +29,7 @@
   workspace.innerHTML = `
     <div class="xp-head"><div><h1>Xử Lý Khai Báo</h1><p>Nhập liệu Sale và Khai báo trên cùng một bảng. Các cột nhận diện được giữ cố định khi cuộn ngang.</p></div><button id="xp-back" class="cf-action">← Danh sách công việc</button></div>
     <div class="xp-tools"><div class="xp-search"><span>⌕</span><input id="xp-search" placeholder="Tìm mã hàng, mã khách, tên hàng, Sale..."></div><select id="xp-status"><option value="">Mọi trạng thái</option><option value="sale_required">Chờ Sale bổ sung</option><option value="customs_pending">Chờ Khai báo lên list</option><option value="customer_confirmation">Chờ xác nhận</option><option value="ready_for_loading">Sẵn sàng xếp xe</option></select><button id="xp-refresh" class="cf-action">↻ Cập nhật</button></div>
+    <datalist id="xp-unit-options"><option value="Cái"><option value="Bộ"><option value="Kg"><option value="Cuộn"><option value="Túi"><option value="Quyển"><option value="Bó"></datalist>
     <div id="xp-summary" class="xp-summary"></div><div id="xp-list" class="xp-list"></div>`;
   main.appendChild(workspace);
 
@@ -44,7 +45,8 @@
     const longText = field === 'description' || field === 'en' || field === 'vi';
     const longTextClass = field === 'description' ? 'sale-text' : field === 'en' ? 'english-text' : 'declaration-text';
     if (longText) return `<textarea class="long-text ${longTextClass}" rows="3" data-${scope}-field="${field}" data-row="${rowIndex}" ${editable ? '' : 'disabled'}>${esc(value)}</textarea>`;
-    return `<input data-${scope}-field="${field}" data-row="${rowIndex}" value="${esc(value)}" ${editable ? '' : 'disabled'}>`;
+    const list = field === 'unit' || field === 'unit1' ? ' list="xp-unit-options"' : '';
+    return `<input${list} data-${scope}-field="${field}" data-row="${rowIndex}" value="${esc(value)}" ${editable ? '' : 'disabled'}>`;
   }
   function shipmentCard(item) {
     const user = session().user;
