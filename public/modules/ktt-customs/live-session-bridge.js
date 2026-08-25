@@ -39,6 +39,7 @@
   const mapRow = row => {
     const customsLines = (row.customsLines || []).map(mapCustomsLine);
     const firstCustomsLine = customsLines[0] || null;
+    const latestCustomerChange = [...(row.history || [])].reverse().find(item => item.action === 'customer_requests_edit');
     const customs = firstCustomsLine ? {
       vi: firstCustomsLine.vi,
       en: firstCustomsLine.en,
@@ -59,6 +60,7 @@
       saleInfo: { productLines: (row.saleProductLines || []).map(mapLine) },
       customsLines,
       customs,
+      customerChangeNote: latestCustomerChange?.content || '',
       supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
       history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])
     };
