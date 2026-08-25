@@ -115,6 +115,40 @@
       item.setAttribute('aria-disabled', String(disabled));
     });
   }
+  const declarationUnits = ['Cái', 'Bộ', 'Kg', 'Cuộn', 'Túi', 'Quyển', 'Bó'];
+  function normalizedDeclarationUnit(value) {
+    const raw = String(value || '').trim();
+    return ({ PCE: 'Cái', SET: 'Bộ', KGM: 'Kg', KG: 'Kg', ROL: 'Cuộn' })[raw.toLocaleUpperCase('vi-VN')] || raw || 'Cái';
+  }
+  function declarationUnitOptions(value) {
+    const current = normalizedDeclarationUnit(value);
+    const known = declarationUnits.some(unit => unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN'));
+    return [...declarationUnits.map(unit => `<option value="${esc(unit)}" ${unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN') ? 'selected' : ''}>${esc(unit)}</option>`), ...(!known ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : []), '<option value="__custom__">Nhập đơn vị khác…</option>'].join('');
+  }
+  function bindDeclarationUnitSelect(select) {
+    if (select.dataset.kttUnitBound === '1') return;
+    select.dataset.kttUnitBound = '1';
+    select.addEventListener('change', () => {
+      if (select.value !== '__custom__') return;
+      const custom = window.prompt('Nhập đơn vị khác:');
+      if (!custom?.trim()) { select.value = 'Cái'; return; }
+      const option = document.createElement('option'); option.value = custom.trim(); option.textContent = custom.trim(); option.selected = true;
+      select.insertBefore(option, select.lastElementChild);
+    });
+  }
+  function normalizeDeclarationUnitControls() {
+    document.querySelectorAll('#cf-sale-form [data-field="unit"]').forEach(select => {
+      const value = select.value; select.innerHTML = declarationUnitOptions(value); bindDeclarationUnitSelect(select);
+    });
+    document.querySelectorAll('#cf-customs-form [data-custom-field="unit1"]').forEach(control => {
+      let select = control;
+      if (control.tagName !== 'SELECT') {
+        select = document.createElement('select'); select.dataset.customField = 'unit1'; select.disabled = control.disabled;
+        control.replaceWith(select);
+      }
+      select.innerHTML = declarationUnitOptions(control.value); bindDeclarationUnitSelect(select);
+    });
+  }
   // Kim Thành Tín quản lý từng mã hàng độc lập, không sử dụng khái niệm lô.
   // The locked customs UI still retains `lot` internally for backwards
   // compatibility with old records, so only its presentation is suppressed.
@@ -289,6 +323,7 @@
     // the administrator/accounting workflow.
     disablePane('#cf-pane-accounting', currentUser?.role !== 'admin');
     removeLotPresentation();
+    normalizeDeclarationUnitControls();
     installWorkflowControls();
   }
   function workflowButton(label, className, onClick) {

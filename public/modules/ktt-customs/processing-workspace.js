@@ -14,11 +14,11 @@
   const saleFields = [
     ['description', 'Tên SP / công dụng / chất liệu / model', 'text'], ['packs', 'Số kiện', 'number'],
     ['productsPerPack', 'SP/kiện', 'text'], ['size', 'Kích thước', 'text'], ['qty', 'SL khai báo', 'number'],
-    ['unit', 'ĐVT', 'text'], ['invoicePrice', 'Giá HĐ trước VAT', 'text'], ['note', 'Ghi chú Sale', 'text']
+    ['unit', 'Đơn vị khai báo', 'text'], ['invoicePrice', 'Giá HĐ trước VAT', 'text'], ['note', 'Ghi chú Sale', 'text']
   ];
   const customsFields = [
     ['en', 'Tên tiếng Anh', 'text'], ['vi', 'Mô tả hàng hóa', 'text'], ['note', 'NOTE', 'text'],
-    ['invoicePrice', 'Giá XHĐ trước thuế', 'text'], ['hs', 'Mã HS', 'text'], ['qty1', 'SL1', 'number'], ['unit1', 'ĐVT', 'text'],
+    ['invoicePrice', 'Giá XHĐ trước thuế', 'text'], ['hs', 'Mã HS', 'text'], ['qty1', 'SL1', 'number'], ['unit1', 'Đơn vị khai báo', 'text'],
     ['price', 'Giá khai USD', 'number'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
     ['importTax', 'Thuế NK', 'number'], ['vatRate', 'VAT %', 'number'], ['totalTax', 'Tổng thuế VNĐ', 'number']
   ];
@@ -42,9 +42,11 @@
   function rows() { return Array.isArray(window.KTT_CUSTOMS_DATA) ? window.KTT_CUSTOMS_DATA : []; }
   function unitSelect(field, value, editable, scope, rowIndex) {
     const units = ['Cái', 'Bộ', 'Kg', 'Cuộn', 'Túi', 'Quyển', 'Bó'];
-    const current = String(value || '').trim();
+    const legacy = { PCE: 'Cái', SET: 'Bộ', KGM: 'Kg', KG: 'Kg', ROL: 'Cuộn' };
+    const raw = String(value || '').trim();
+    const current = legacy[raw.toLocaleUpperCase('vi-VN')] || raw || 'Cái';
     const known = units.some(unit => unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN'));
-    const options = ['<option value="">— Để trống —</option>', ...units.map(unit => `<option value="${unit}" ${unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN') ? 'selected' : ''}>${unit}</option>`), ...(!known && current ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : []), '<option value="__custom__">Nhập đơn vị khác…</option>'];
+    const options = [...units.map(unit => `<option value="${unit}" ${unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN') ? 'selected' : ''}>${unit}</option>`), ...(!known ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : []), '<option value="__custom__">Nhập đơn vị khác…</option>'];
     return `<select class="xp-unit-select" data-${scope}-field="${field}" data-row="${rowIndex}" ${editable ? '' : 'disabled'}>${options.join('')}</select>`;
   }
   function input(field, value, editable, scope, rowIndex) {
@@ -122,7 +124,7 @@
     const select = event.target.closest('.xp-unit-select');
     if (!select || select.value !== '__custom__') return;
     const custom = window.prompt('Nhập đơn vị khác:');
-    if (!custom?.trim()) { select.value = ''; return; }
+    if (!custom?.trim()) { select.value = 'Cái'; return; }
     const option = document.createElement('option'); option.value = custom.trim(); option.textContent = custom.trim(); option.selected = true;
     select.insertBefore(option, select.lastElementChild);
   });
