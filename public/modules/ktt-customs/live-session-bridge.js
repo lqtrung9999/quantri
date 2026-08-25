@@ -499,7 +499,8 @@
   function refreshWhenIdle() {
     const active = document.activeElement;
     const editing = active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
-    if (document.hidden || editing) return;
+    const workspaceDirty = document.querySelector('#cf-processing-workspace')?.dataset.dirty === '1';
+    if (document.hidden || editing || workspaceDirty) return;
     refresh().catch(error => console.warn('KTT customs live sync:', error));
   }
   window.addEventListener('focus', refreshWhenIdle);
