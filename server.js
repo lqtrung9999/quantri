@@ -138,7 +138,17 @@ function crmNewRows() {
   if (!fs.existsSync(crmNewDataFile)) return [];
   try {
     const rows = JSON.parse(fs.readFileSync(crmNewDataFile, 'utf8'));
-    return Array.isArray(rows) ? rows : [];
+    if (!Array.isArray(rows)) return [];
+    let changed = false;
+    for (const row of rows) {
+      if (!Array.isArray(row.notes)) row.notes = [];
+      for (const note of row.notes) {
+        if (!note.id) { note.id = crypto.randomUUID(); changed = true; }
+        if (!Array.isArray(note.replies)) { note.replies = []; changed = true; }
+      }
+    }
+    if (changed) saveCrmNewRows(rows);
+    return rows;
   } catch { throw new Error('Dữ liệu CRM Mới không hợp lệ.'); }
 }
 function saveCrmNewRows(rows) {
@@ -715,8 +725,8 @@ http.createServer(async (req, res) => {
     try {
       const { action, record, id, text } = await readJson(req);
       const rows = crmNewRows();
-      if (user.role !== 'sale') return send(res, 403, { error: 'Chỉ tài khoản Sale có thể cập nhật CRM.' });
       if (action === 'create') {
+        if (user.role !== 'sale') return send(res, 403, { error: 'Chỉ tài khoản Sale có thể tạo khách hàng.' });
         const name = String(record?.name || '').trim();
         if (!name || name.length > 150) return send(res, 400, { error: 'Vui lòng nhập tên khách hàng.' });
         const requestId = String(record?.requestId || '').trim().slice(0, 100);
@@ -732,13 +742,33 @@ http.createServer(async (req, res) => {
         };
         const initialNote = String(record?.note || '').trim().slice(0, 4000);
         if (initialNote) {
-          item.notes.push({ text: initialNote, author: crmNewActor(user), userId: user.id, at: now });
+          item.notes.push({ id: crypto.randomUUID(), text: initialNote, author: crmNewActor(user), userId: user.id, at: now, replies: [] });
           item.history.push({ field: 'note', label: 'Ghi chú', from: '', to: initialNote, author: crmNewActor(user), userId: user.id, at: now });
         }
         rows.push(item); saveCrmNewRows(rows);
         return send(res, 201, { record: item, sync: queueCrmNewSync() });
       }
       const item = rows.find(row => row.id === id || row.id === record?.id);
+      if (action === 'replyNote') {
+        if (user.role !== 'admin') return send(res, 403, { error: 'Chỉ Admin có thể phản hồi ghi chú của Sale.' });
+        if (!item) return send(res, 404, { error: 'Không tìm thấy khách hàng.' });
+        const note = item.notes.find(entry => entry.id === record?.noteId), replyText = String(record?.text || '').trim().slice(0, 4000);
+        if (!note) return send(res, 404, { error: 'Không tìm thấy ghi chú.' });
+        if (!replyText) return send(res, 400, { error: 'Vui lòng nhập nội dung phản hồi.' });
+        const now = new Date().toISOString();
+        note.replies.push({ id: crypto.randomUUID(), text: replyText, author: crmNewActor(user), userId: user.id, at: now, readAt: '' });
+        item.history = Array.isArray(item.history) ? item.history : [];
+        item.history.push({ field: 'adminReply', label: 'Phản hồi Admin', from: note.text, to: replyText, author: crmNewActor(user), userId: user.id, at: now });
+        item.updatedAt = now; saveCrmNewRows(rows);
+        return send(res, 200, { record: item, sync: queueCrmNewSync() });
+      }
+      if (action === 'markRepliesRead') {
+        if (user.role !== 'sale' || !item || !sameSale(item.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể đọc thông báo của khách hàng mình phụ trách.' });
+        const now = new Date().toISOString(); let changed = false;
+        for (const note of item.notes) for (const reply of note.replies) if (!reply.readAt) { reply.readAt = now; changed = true; }
+        if (changed) { item.updatedAt = now; saveCrmNewRows(rows); queueCrmNewSync(); }
+        return send(res, 200, { record: item, unread: 0 });
+      }
       if (!item || !sameSale(item.sale, user.sale)) return send(res, 403, { error: 'Bạn chỉ có thể cập nhật khách hàng của mình.' });
       if (action === 'update') {
         const now = new Date().toISOString(), changes = [];
@@ -756,7 +786,7 @@ http.createServer(async (req, res) => {
         const note = String(record?.note || '').trim().slice(0, 4000);
         if (note) {
           item.notes = Array.isArray(item.notes) ? item.notes : [];
-          item.notes.push({ text: note, author: crmNewActor(user), userId: user.id, at: now });
+          item.notes.push({ id: crypto.randomUUID(), text: note, author: crmNewActor(user), userId: user.id, at: now, replies: [] });
           changes.push({ field: 'note', label: 'Ghi chú', from: '', to: note, author: crmNewActor(user), userId: user.id, at: now });
         }
         if (!changes.length) return send(res, 200, { record: item, unchanged: true, sync: crmNewSyncState });
@@ -768,7 +798,7 @@ http.createServer(async (req, res) => {
         if (!note) return send(res, 400, { error: 'Vui lòng nhập nội dung ghi chú.' });
         item.notes = Array.isArray(item.notes) ? item.notes : [];
         const now = new Date().toISOString();
-        item.notes.push({ text: note, author: crmNewActor(user), userId: user.id, at: now });
+        item.notes.push({ id: crypto.randomUUID(), text: note, author: crmNewActor(user), userId: user.id, at: now, replies: [] });
         item.history = Array.isArray(item.history) ? item.history : [];
         item.history.push({ field: 'note', label: 'Ghi chú', from: '', to: note, author: crmNewActor(user), userId: user.id, at: now });
         item.updatedAt = now; saveCrmNewRows(rows);

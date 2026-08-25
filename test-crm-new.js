@@ -61,6 +61,16 @@ async function waitUntilReady() {
   assert.equal(repeatedCreate.response.status, 200);
   assert.equal(repeatedCreate.body.duplicatePrevented, true);
   assert.equal(repeatedCreate.body.record.id, id);
+  const noteId = created.body.record.notes[0].id;
+  const adminReply = await crm(admin, 'POST', { action: 'replyNote', id, record: { noteId, text: 'Admin đề nghị Sale liên hệ lại khách.' } });
+  assert.equal(adminReply.response.status, 200);
+  assert.equal(adminReply.body.record.notes[0].replies.length, 1);
+  assert.equal(adminReply.body.record.notes[0].replies[0].readAt, '');
+  assert.equal((await crm(accountant, 'POST', { action: 'replyNote', id, record: { noteId, text: 'Không được phép' } })).response.status, 403);
+  assert.equal((await crm(saleP8, 'POST', { action: 'markRepliesRead', id })).response.status, 403);
+  const markedRead = await crm(saleP5, 'POST', { action: 'markRepliesRead', id });
+  assert.equal(markedRead.response.status, 200);
+  assert.ok(markedRead.body.record.notes[0].replies[0].readAt);
 
   const updated = await crm(saleP5, 'POST', { action: 'update', record: { id, name: 'Không được đổi', phone: '0902', source: 'TikTok', product: 'Giày', link: 'https://example.org', status: 'Đã kết bạn', category: 'Khách tiềm năng', result: 'Chưa Chốt Được', note: 'Ghi chú sau' } });
   assert.equal(updated.response.status, 200);
@@ -76,7 +86,7 @@ async function waitUntilReady() {
   assert.equal((await crm(admin)).body.rows.length, 1, 'Admin được xem toàn bộ');
   assert.equal((await crm(accountant)).body.rows.length, 1, 'Kế toán được xem toàn bộ');
   assert.equal((await crm(admin, 'POST', { action: 'update', record: { id, phone: '0999' } })).response.status, 403, 'Admin không sửa dữ liệu sale');
-  console.log('CRM Mới: 16 kiểm tra API, chống trùng và phân quyền đã đạt.');
+  console.log('CRM Mới: 23 kiểm tra API, phản hồi ghi chú, chống trùng và phân quyền đã đạt.');
   if (process.env.CRM_TEST_BROWSER === '1') {
     console.log(`Giữ máy chủ kiểm thử tại http://127.0.0.1:${port}`);
     await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
