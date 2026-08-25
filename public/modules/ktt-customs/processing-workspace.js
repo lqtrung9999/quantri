@@ -41,7 +41,7 @@
   workspace.id = 'cf-processing-workspace';
   workspace.hidden = true;
   workspace.innerHTML = `
-    <div class="xp-head"><div><h1>Xử Lý Khai Báo</h1><p>Nhập liệu Sale và Khai báo trên cùng một bảng. Các cột nhận diện được giữ cố định khi cuộn ngang.</p></div><button id="xp-back" class="cf-action">← Danh sách công việc</button></div><div class="xp-rate"></div>
+    <div class="xp-head"><div><h1>Xử Lý Khai Báo</h1><p>Nhập liệu Sale và Khai báo trên cùng một bảng. Các cột nhận diện được giữ cố định khi cuộn ngang.</p></div><button id="xp-back" class="cf-action">← Danh sách công việc</button></div><div class="xp-rate"></div><div class="xp-kpis"></div>
     <div class="xp-tools"><div class="xp-search"><span>⌕</span><input id="xp-search" placeholder="Tìm mã hàng, mã khách, tên hàng, Sale..."></div><select id="xp-status"><option value="">Mọi trạng thái</option><option value="sale_required">Chờ Sale bổ sung</option><option value="customs_pending">Chờ Khai báo lên list</option><option value="customer_confirmation">Chờ xác nhận</option><option value="ready_for_loading">Sẵn sàng xếp xe</option></select><button id="xp-refresh" class="cf-action">↻ Cập nhật</button></div>
     <div id="xp-summary" class="xp-summary"></div><div id="xp-list" class="xp-list"></div>`;
   main.appendChild(workspace);
@@ -51,6 +51,16 @@
   const overviewButton = navButtons.find(button => /Tổng quan/i.test(button.textContent || ''));
   const coordinationButton = navButtons.find(button => /Khai báo\s*&\s*xếp xe/i.test(button.textContent || ''));
   if (processingButton) processingButton.innerHTML = '<span class="ico">▣</span><span>Xử Lý Khai Báo</span>';
+  function bindOriginalKpis() {
+    const values = ['sale', 'customs', 'customer', 'ready', 'ready'], filter = root.querySelector('#cf-status-filter');
+    root.querySelectorAll('.cf-kpis .cf-kpi').forEach((card, index) => {
+      card.setAttribute('role', 'button'); card.tabIndex = 0; card.dataset.filterStatus = values[index] || '';
+      const activate = () => { if (!filter) return; filter.value = card.dataset.filterStatus; filter.dispatchEvent(new Event('change', { bubbles: true })); root.querySelectorAll('.cf-kpis .cf-kpi').forEach(item => item.classList.toggle('ktt-active', item === card)); };
+      card.onclick = activate; card.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } };
+    });
+    filter?.addEventListener('change', () => root.querySelectorAll('.cf-kpis .cf-kpi').forEach(card => card.classList.toggle('ktt-active', card.dataset.filterStatus === filter.value)));
+  }
+  bindOriginalKpis();
 
   function session() { return window.KTT_CUSTOMS_SESSION || {}; }
   function rows() { return Array.isArray(window.KTT_CUSTOMS_DATA) ? window.KTT_CUSTOMS_DATA : []; }
@@ -129,12 +139,22 @@
     const query = workspace.querySelector('#xp-search').value.trim().toLocaleLowerCase('vi-VN');
     const wantedStatus = workspace.querySelector('#xp-status').value;
     const visible = rows().filter(item => (!wantedStatus || item._status === wantedStatus) && (!query || `${item.code} ${item.name} ${item.customer} ${item.owner} ${item.sale}`.toLocaleLowerCase('vi-VN').includes(query)));
+    const counts = Object.fromEntries(['sale_required', 'customs_pending', 'customer_confirmation', 'ready_for_loading'].map(status => [status, rows().filter(item => item._status === status).length]));
+    const readyVolume = rows().filter(item => item._status === 'ready_for_loading').reduce((sum, item) => sum + n(item.m3), 0);
+    workspace.querySelector('.xp-kpis').innerHTML = `<button data-kpi-status="sale_required"><span>CHỜ SALE BỔ SUNG</span><b>${counts.sale_required}</b><small>Thông tin khách cung cấp</small></button><button data-kpi-status="customs_pending"><span>CHỜ KHAI BÁO HQ</span><b>${counts.customs_pending}</b><small>Đủ thông tin đầu vào</small></button><button data-kpi-status="customer_confirmation"><span>CHỜ KHÁCH XÁC NHẬN</span><b>${counts.customer_confirmation}</b><small>Khai báo đang chốt lại</small></button><button data-kpi-status="ready_for_loading"><span>SẴN SÀNG XẾP XE</span><b>${counts.ready_for_loading}</b><small>Mã hàng đã chốt</small></button><button data-kpi-status="ready_for_loading"><span>KHỐI SẴN SÀNG</span><b>${readyVolume.toLocaleString('vi-VN', { maximumFractionDigits: 2 })} m³</b><small>Mục tiêu xe 78 m³</small></button>`;
+    workspace.querySelectorAll('[data-kpi-status]').forEach(button => button.classList.toggle('active', button.dataset.kpiStatus === wantedStatus));
     workspace.querySelector('#xp-summary').textContent = `${visible.length} mã hàng · ${visible.reduce((sum, item) => sum + Math.max(1, item.saleInfo?.productLines?.length || 0), 0)} dòng sản phẩm`;
     workspace.querySelector('#xp-list').innerHTML = visible.map(shipmentCard).join('') || '<div class="xp-empty">Không có mã hàng phù hợp.</div>';
     workspace.querySelectorAll('.xp-card').forEach(card => {
       calculate(card); card.querySelectorAll('[data-customs-field="vi"]').forEach(input => { if (input.value) showDeclaredWarning(input); });
+      card.querySelectorAll('textarea.long-text').forEach(centerLongTextarea);
       const wrap = card.querySelector('.xp-table-wrap'); if (wrap) wrap.scrollLeft = scrollPositions.get(card.dataset.id) || 0;
     });
+  }
+  function centerLongTextarea(textarea) {
+    const usable = Math.max(18, Math.floor((textarea.clientWidth || 108) / 7));
+    const lines = String(textarea.value || '').split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / usable)), 0);
+    textarea.style.paddingTop = `${Math.max(6, (80 - Math.min(lines, 4) * 16) / 2)}px`;
   }
   function collect(card, scope, fields) {
     const rowIndexes = new Set([...card.querySelectorAll(`[data-${scope}-field]`)].map(input => Number(input.dataset.row)));
@@ -197,6 +217,8 @@
     } catch (error) { alert(error.message || 'Không thể cập nhật tỉ giá.'); }
   }
   workspace.addEventListener('click', event => {
+    const kpi = event.target.closest('[data-kpi-status]');
+    if (kpi) { workspace.querySelector('#xp-status').value = kpi.dataset.kpiStatus; render(); return; }
     const card = event.target.closest('.xp-card'); if (!card) return;
     const copyHs = event.target.closest('[data-copy-hs]');
     if (copyHs) { const hs = copyHs.closest('tr')?.querySelector('[data-customs-field="hs"]'); if (hs) { hs.value = copyHs.dataset.copyHs; workspace.dataset.dirty = '1'; } return; }
@@ -213,6 +235,7 @@
   workspace.addEventListener('input', event => {
     const card = event.target.closest('.xp-card'); if (!card) return;
     workspace.dataset.dirty = '1'; calculate(card);
+    if (event.target.matches('textarea.long-text')) centerLongTextarea(event.target);
     if (event.target.matches('[data-customs-field="vi"]')) { clearTimeout(warningTimers.get(event.target)); warningTimers.set(event.target, setTimeout(() => showDeclaredWarning(event.target), 250)); }
   });
   document.addEventListener('click', event => { const button = event.target.closest('.xp-rate-save'); if (button) updateRate(button.closest('.xp-rate')); });
@@ -252,6 +275,10 @@
     .xp-confirm-title{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px}.xp-confirm-title>div{display:grid;gap:5px}.xp-confirm-title b{font-size:16px}.xp-confirm-title span{color:#66758d}.xp-confirm-wrap{margin:0 16px 5px;overflow:auto;border:1px solid #dce4ef;border-radius:9px}.xp-confirm-wrap table{border-collapse:collapse;min-width:1700px;width:100%;font-size:11px}.xp-confirm-wrap th{padding:10px 9px;background:#ddd1f5;color:#30294a;text-align:center;vertical-align:middle;white-space:normal;border-right:1px solid #bfb4dc}.xp-confirm-wrap td{padding:11px 9px;border-top:1px solid #dfe5ee;border-right:1px solid #e2e7ef;text-align:center;vertical-align:middle}.xp-confirm-wrap th:nth-child(3),.xp-confirm-wrap td:nth-child(3){min-width:330px;white-space:normal}.xp-confirm-card .xp-actions{border-top:1px solid #e3e9f2}
     .xp-customer-feedback{display:grid;gap:7px;margin:14px 16px;padding-top:12px;border-top:1px solid #e2e8f1}.xp-customer-feedback label{font-size:12px;font-weight:800;color:#354258}.xp-customer-feedback textarea{box-sizing:border-box;width:100%;min-height:86px;padding:11px;border:1px solid #cfd9e7;border-radius:8px;resize:vertical;font:12px/1.5 system-ui}.xp-return-note{display:grid;gap:5px;margin:11px 13px;padding:10px 12px;border:1px solid #f0b873;border-radius:8px;background:#fff6e8;color:#86450d}.xp-return-note b{font-size:11px}.xp-return-note span{font-size:12px;white-space:pre-wrap}
     .xp-supplement-box{display:grid;gap:8px;margin:13px;padding:13px;border:1px solid #efb46f;border-radius:10px;background:#fff9f1}.xp-supplement-box label{font-size:12px;font-weight:800;color:#354258}.xp-supplement-box textarea{box-sizing:border-box;width:100%;min-height:86px;padding:11px;border:1px solid #cfd9e7;border-radius:8px;resize:vertical;font:12px/1.5 system-ui}.xp-supplement-box>div{display:flex;justify-content:flex-end}.xp-sale-note{border-color:#e9ae61;background:#fff8ed}
+    .xp-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 13px}.xp-kpis button{min-height:112px;padding:12px;border:1px solid #dce4ef;border-radius:12px;background:#fff;color:#172033;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer}.xp-kpis button:hover,.xp-kpis button:focus{border-color:#6d8fbd;box-shadow:0 0 0 2px #6d8fbd20}.xp-kpis span{font-size:12px;font-weight:850;color:#58677d}.xp-kpis b{margin:5px 0 3px;font-size:23px}.xp-kpis small{font-size:11px;font-weight:700;color:#748198}
+    .xp-table th{text-align:center!important;vertical-align:middle!important;font-weight:800!important}.xp-table td{text-align:center!important;vertical-align:middle!important}.xp-table .pin.product{text-align:left!important;vertical-align:middle!important}.xp-table input,.xp-table textarea,.xp-table .xp-unit-select{height:80px!important;border:1px solid rgba(25,35,50,.32)!important;background:#fff!important;text-align:center;vertical-align:middle}.xp-table textarea.long-text{height:80px!important;min-height:80px!important;line-height:16px!important;overflow:auto}.xp-table textarea[data-sale-field="description"],.xp-table textarea[data-customs-field="en"],.xp-table textarea[data-customs-field="vi"],.xp-table input[data-sale-field="note"],.xp-table input[data-customs-field="note"]{text-align:left!important}.xp-table input:disabled,.xp-table textarea:disabled,.xp-table .xp-unit-select:disabled{background:#f0f3f7!important;color:#536178!important;border-color:rgba(25,35,50,.2)!important;opacity:1}.xp-table input:not(:disabled),.xp-table textarea:not(:disabled),.xp-table select:not(:disabled){background:#fff!important;color:#172033!important}
+    #customs-flow-app .cf-kpis .cf-kpi{min-height:112px;display:flex!important;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:12px!important}#customs-flow-app .cf-kpis .cf-kpi span{font-size:12px!important;font-weight:850!important;color:light-dark(#526178,#d2dae6)!important}#customs-flow-app .cf-kpis .cf-kpi b{font-size:23px!important;margin:5px 0 3px!important}#customs-flow-app .cf-kpis .cf-kpi small{font-size:11px!important;font-weight:700!important}#customs-flow-app .cf-kpis .cf-kpi:hover,#customs-flow-app .cf-kpis .cf-kpi.ktt-active{border-color:#5b82ba!important;box-shadow:0 0 0 2px #5b82ba24}
+    @media(max-width:900px){.xp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
   `;
   document.head.appendChild(style);
 })();
