@@ -6,13 +6,14 @@
 
   const esc = value => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const initials = value => String(value || '').trim().split(/\s+/).filter(Boolean).slice(-2).map(word => word[0]).join('').toUpperCase() || 'KTT';
-  const status = value => ({ sale_required: 'sale', customs_pending: 'customs', customer_confirmation: 'customer', ready_for_loading: 'ready' }[value] || 'sale');
+  const status = value => ({ sale_required: 'sale', customs_pending: 'customs', customer_confirmation: 'customer', ready_for_loading: 'ready', loaded: 'loaded' }[value] || 'sale');
   const roleTitle = user => {
     if (user.role === 'customs_declaration') return 'Khai báo HQ';
     if (user.team) return `Trưởng phòng ${user.team}`;
     if (user.role === 'sale') return 'Sale';
     if (user.role === 'warehouse_cn') return 'Kho TQ';
     if (user.role === 'accountant') return 'Kế toán';
+    if (user.role === 'truck_planner') return 'Điều vận Xếp Xe CN';
     return user.role === 'admin' ? 'Quản trị viên' : 'Nhân viên vận hành';
   };
   const displayDate = value => {
@@ -54,7 +55,7 @@
     return {
       _id: row.id, code: row.cargoCode || '', lot: row.lotCode || '', packs: Number(row.packageCount || 0), name: row.productName || '',
       customer: row.customerCode || '', owner: row.ownerName || '', sale: row.saleOwner || '', team: row.saleTeam || '',
-      accounting: row.accountant || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0), photos: 0,
+      accounting: row.accountant || '', operationDate: row.operationDate || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0), photos: 0,
       docs: row.documentStatus || 'Chưa kiểm tra', status: status(row.status),
       _status: row.status, saleLockedAt: row.saleLockedAt || '', customsLockedAt: row.customsLockedAt || '',
       saleInfo: { productLines: (row.saleProductLines || []).map(mapLine) },
@@ -62,6 +63,7 @@
       customs,
       customerChangeNote: latestCustomerChange?.content || '',
       supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
+      loadingRecords: Array.isArray(row.loadingRecords) ? row.loadingRecords : [],
       history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])
     };
   };

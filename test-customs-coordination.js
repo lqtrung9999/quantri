@@ -27,6 +27,13 @@ assert.equal(transition('customs_pending', 'customs_submit'), 'customer_confirma
 assert.equal(transition('customer_confirmation', 'customer_requests_edit'), 'customs_pending');
 assert.equal(transition('customer_confirmation', 'customer_approved'), 'ready_for_loading');
 assert.equal(transition('ready_for_loading', 'sale_submit'), null, 'Không cho phép nhảy trạng thái sai luồng');
+const loadingRecords = [{ packageCount: 100, volumeM3: 6.5 }];
+assert.equal(135 - loadingRecords.reduce((sum, item) => sum + item.packageCount, 0), 35, 'Xếp một phần phải giữ đúng số kiện còn lại');
+assert.equal(9 - loadingRecords.reduce((sum, item) => sum + item.volumeM3, 0), 2.5, 'Xếp một phần phải giữ đúng số m3 còn lại');
+const truckWorkspace = fs.readFileSync('public/modules/ktt-customs/truck-loading-workspace.js', 'utf8');
+assert.match(truckWorkspace, /Xếp Xe CN/);
+assert.match(truckWorkspace, /assign_truck/);
+assert.match(truckWorkspace, /revert_loading/);
 history.push({ actorRole: 'sale', action: 'sale_submit' });
 assert.equal(history.length, 1, 'Mọi thao tác phải thêm lịch sử');
 const reference = JSON.parse(fs.readFileSync('customs-declared-goods.json', 'utf8'));

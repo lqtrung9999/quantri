@@ -966,6 +966,49 @@ http.createServer(async (req, res) => {
         if (shipment.status !== 'customer_confirmation') return send(res, 409, { error: 'Mã hàng chưa ở bước Khai báo xác nhận.' });
         const from = shipment.status, approved = action === 'customer_approved'; shipment.status = approved ? 'ready_for_loading' : 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, action, from, shipment.status, approved ? 'Khai báo xác nhận khách; sẵn sàng xếp xe.' : String(record?.content || 'Khai báo ghi nhận yêu cầu chỉnh sửa thông tin.').slice(0, 4000)); saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
+      if (action === 'assign_truck') {
+        if (!(privileged || user.role === 'truck_planner')) return send(res, 403, { error: 'Chỉ Điều vận Xếp Xe CN hoặc Admin được tạo danh sách bốc xe.' });
+        const truckCode = String(record?.truckCode || '').trim().slice(0, 80);
+        const loadingDate = String(record?.loadingDate || '').trim().slice(0, 10);
+        const assignments = Array.isArray(record?.assignments) ? record.assignments.slice(0, 500) : [];
+        if (!truckCode || !/^\d{4}-\d{2}-\d{2}$/.test(loadingDate) || !assignments.length) return send(res, 400, { error: 'Vui lòng nhập mã xe, ngày bốc và chọn ít nhất một mã hàng.' });
+        const prepared = [];
+        for (const assignment of assignments) {
+          const item = rows.find(row => row.id === String(assignment?.id || ''));
+          if (!item || item.status !== 'ready_for_loading') return send(res, 409, { error: 'Có mã hàng không còn ở trạng thái sẵn sàng xếp xe. Vui lòng cập nhật lại danh sách.' });
+          item.loadingRecords = Array.isArray(item.loadingRecords) ? item.loadingRecords : [];
+          const loadedPacks = item.loadingRecords.reduce((sum, entry) => sum + customsNumber(entry.packageCount), 0);
+          const loadedM3 = item.loadingRecords.reduce((sum, entry) => sum + customsNumber(entry.volumeM3), 0);
+          const remainingPacks = Math.max(0, customsNumber(item.packageCount) - loadedPacks);
+          const remainingM3 = Math.max(0, customsNumber(item.volumeM3) - loadedM3);
+          const packageCount = customsNumber(assignment?.packageCount);
+          const volumeM3 = customsNumber(assignment?.volumeM3);
+          if (!(packageCount > 0) || packageCount > remainingPacks + 0.000001 || (remainingM3 > 0 && !(volumeM3 > 0)) || volumeM3 > remainingM3 + 0.000001) return send(res, 400, { error: `Số kiện hoặc m³ bốc của ${item.cargoCode} không hợp lệ hoặc vượt quá lượng còn lại.` });
+          prepared.push({ item, packageCount, volumeM3 });
+        }
+        const now = new Date().toISOString(), batchId = crypto.randomUUID();
+        for (const entry of prepared) {
+          const loading = { id: crypto.randomUUID(), batchId, truckCode, loadingDate, packageCount: entry.packageCount, volumeM3: entry.volumeM3, note: String(record?.note || '').trim().slice(0, 1000), actorId: user.id, actor: user.name, createdAt: now };
+          entry.item.loadingRecords.push(loading);
+          const totalLoadedPacks = entry.item.loadingRecords.reduce((sum, item) => sum + customsNumber(item.packageCount), 0);
+          const totalLoadedM3 = entry.item.loadingRecords.reduce((sum, item) => sum + customsNumber(item.volumeM3), 0);
+          const complete = totalLoadedPacks >= customsNumber(entry.item.packageCount) - 0.000001;
+          const from = entry.item.status; entry.item.status = complete ? 'loaded' : 'ready_for_loading'; entry.item.updatedAt = now;
+          customsHistory(entry.item, user, complete ? 'truck_loaded' : 'truck_partially_loaded', from, entry.item.status, `Bốc ${entry.packageCount} kiện, ${entry.volumeM3} m³ lên xe ${truckCode}, ngày ${loadingDate}.`);
+        }
+        saveCustomsRows(rows); return send(res, 200, { ok: true, batchId, updated: prepared.length });
+      }
+      if (action === 'revert_loading') {
+        if (!(privileged || user.role === 'truck_planner')) return send(res, 403, { error: 'Chỉ Điều vận Xếp Xe CN hoặc Admin được hoàn tác bốc xe.' });
+        const loadingId = String(record?.loadingId || '');
+        shipment.loadingRecords = Array.isArray(shipment.loadingRecords) ? shipment.loadingRecords : [];
+        const index = shipment.loadingRecords.findIndex(entry => entry.id === loadingId);
+        if (index < 0) return send(res, 404, { error: 'Không tìm thấy lần bốc xe cần hoàn tác.' });
+        const [removed] = shipment.loadingRecords.splice(index, 1), from = shipment.status;
+        shipment.status = 'ready_for_loading'; shipment.updatedAt = new Date().toISOString();
+        customsHistory(shipment, user, 'truck_loading_reverted', from, shipment.status, `Trả ${removed.packageCount} kiện, ${removed.volumeM3} m³ từ xe ${removed.truckCode} về danh sách chờ xếp.`);
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
       if (action === 'document_status') {
         if (!canAccounting) return send(res, 403, { error: 'Chỉ Kế toán được cập nhật chứng từ.' });
         shipment.documentStatus = String(record?.documentStatus || '').slice(0, 100); shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'document_check', shipment.status, shipment.status, `Kế toán cập nhật chứng từ: ${shipment.documentStatus}`); saveCustomsRows(rows); return send(res, 200, { record: shipment });
@@ -1007,6 +1050,7 @@ http.createServer(async (req, res) => {
       const encodeForSrcdoc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
       const sessionBridge = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'live-session-bridge.js'), 'utf8'));
       const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
+      const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
       content = content.toString('utf8')
         // The locked handoff uses a nested srcdoc iframe.  Permit it to call
         // the same-origin API so its view and actions use the real session.
@@ -1020,7 +1064,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content
