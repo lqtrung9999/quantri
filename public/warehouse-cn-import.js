@@ -10,8 +10,10 @@
     if(!source){ rows=[]; return render(); }
     const values=source.split('\n').map(line=>line.split('\t').map(cell=>cell.trim()));
     const looksLikeHeader=values[0]?.some(cell => /ngày|mã hàng|số kiện|tên hàng|chủ hàng/i.test(cell));
-    rows=(looksLikeHeader?values.slice(1):values).filter(columns=>columns.some(Boolean)).map((columns,index)=>({
-      line:index+1, operationDate:normalizeDate(columns[0]), cargoCode:columns[1]||'', packageCount:number(columns[2]), productName:columns[3]||'', customerCode:columns[4]||'', ownerName:columns[5]||'', saleOwner:columns[6]||'', saleTeam:columns[7]||'', accountant:columns[8]||'', weightKg:number(columns[9]), volumeM3:number(columns[10]), columnCount:columns.length
+    const dataRows=(looksLikeHeader?values.slice(1):values).filter(columns=>columns.some(Boolean));
+    const pastedDate=value=>!value||/^\d{1,4}[\/-]\d{1,2}[\/-]\d{1,4}$/.test(value); const extraDates=Boolean(values[0]?.some(cell=>/ngày\s*bốc|ngày\s*trả/i.test(cell)))||dataRows.some(columns=>columns.length>=13&&pastedDate(columns[1])&&pastedDate(columns[2])); const offset=extraDates?2:0;
+    rows=dataRows.map((columns,index)=>({
+      line:index+1, operationDate:normalizeDate(columns[0]), cargoCode:columns[1+offset]||'', packageCount:number(columns[2+offset]), productName:columns[3+offset]||'', customerCode:columns[4+offset]||'', ownerName:columns[5+offset]||'', saleOwner:columns[6+offset]||'', saleTeam:columns[7+offset]||'', accountant:columns[8+offset]||'', weightKg:number(columns[9+offset]), volumeM3:number(columns[10+offset]), columnCount:columns.length-offset
     })); render();
   };
   const rowErrors = row => { const errors=required.filter(([key])=>!String(row[key]||'').trim()).map(([,label])=>label); if(row.columnCount<11)errors.push('Thiếu cột'); return errors; };
