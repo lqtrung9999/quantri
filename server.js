@@ -174,7 +174,24 @@ function saveCustomerManagementRows(rows) {
 function canUseCustomerManagement(user) { return user?.role === 'admin'; }
 function canUseAccountingDemo(user) { return user && ['admin', 'accountant'].includes(user.role); }
 const customsRoles = new Set(['admin', 'accountant', 'sale', 'warehouse_cn', 'customs_declaration', 'manager', 'truck_planner']);
-function canUseCustoms(user) { return Boolean(user && customsRoles.has(user.role)); }
+function canonicalUserRole(user) {
+  const raw = normalized(user?.role);
+  const aliases = {
+    ADMINISTRATOR: 'admin', QUANTRIVIEN: 'admin',
+    ACCOUNTING: 'accountant', KETOAN: 'accountant',
+    SALES: 'sale', SALESSTAFF: 'sale', SALESTAFF: 'sale', TRUONGPHONG: 'sale', TEAMLEADER: 'sale', SALESLEADER: 'sale',
+    WAREHOUSE: 'warehouse_cn', WAREHOUSECHINA: 'warehouse_cn', KHOTQ: 'warehouse_cn', KHOTRUNGQUOC: 'warehouse_cn',
+    CUSTOMS: 'customs_declaration', CUSTOMSHQ: 'customs_declaration', DECLARATION: 'customs_declaration', KHAIBAO: 'customs_declaration', KHAIBAOHQ: 'customs_declaration', NHANVIENKHAIBAO: 'customs_declaration',
+    MANAGEMENT: 'manager', QUANLY: 'manager',
+    TRUCKPLANNER: 'truck_planner', DIEUVAN: 'truck_planner', XEPXECN: 'truck_planner'
+  };
+  if (aliases[raw]) return aliases[raw];
+  if (customsRoles.has(user?.role)) return user.role;
+  if (user?.sale || leaderTeam(user)) return 'sale';
+  if (normalized(user?.name).startsWith('KBHQ')) return 'customs_declaration';
+  return String(user?.role || '').trim();
+}
+function canUseCustoms(user) { return Boolean(user && customsRoles.has(canonicalUserRole(user))); }
 function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn'].includes(user.role)); }
 function customsActorRole(user) {
   if (['admin', 'manager'].includes(user?.role)) return 'manager';
@@ -323,7 +340,8 @@ function currentUser(req) {
   if (!payload || !signature || signature.length !== sign(payload).length || !crypto.timingSafeEqual(Buffer.from(sign(payload)), Buffer.from(signature))) return null;
   try {
     const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    return session.exp > Date.now() ? users().find(user => user.id === session.id && user.active !== false) || null : null;
+    const account = session.exp > Date.now() ? users().find(user => user.id === session.id && user.active !== false) || null : null;
+    return account ? { ...account, role: canonicalUserRole(account) } : null;
   } catch { return null; }
 }
 function profile(user) { return { id: user.id, name: user.name, role: user.role, sale: user.sale || null, team: leaderTeam(user) }; }
