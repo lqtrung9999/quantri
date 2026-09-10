@@ -3,12 +3,18 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_BIN="${HOME}/.local/node/bin/node"
+NPM_BIN="${HOME}/.local/node/bin/npm"
 SESSION_SECRET_FILE="${APP_DIR}/.session-secret"
 LOG_DIR="${APP_DIR}/logs"
 PID_FILE="${APP_DIR}/.server.pid"
 
 if [[ ! -x "${NODE_BIN}" ]]; then
   echo "Node.js has not been installed at ${NODE_BIN}." >&2
+  exit 1
+fi
+
+if [[ ! -x "${NPM_BIN}" ]]; then
+  echo "npm has not been installed at ${NPM_BIN}." >&2
   exit 1
 fi
 
@@ -31,6 +37,7 @@ fi
 sleep 1
 
 cd "${APP_DIR}"
+"${NODE_BIN}" "${NPM_BIN}" ci --omit=dev --no-audit --no-fund
 nohup env PORT=3000 SESSION_SECRET="$(cat "${SESSION_SECRET_FILE}")" "${NODE_BIN}" server.js \
   >> "${LOG_DIR}/server.log" 2>&1 < /dev/null &
 echo $! > "${PID_FILE}"
