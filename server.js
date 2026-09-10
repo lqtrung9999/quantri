@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { buildCustomsWorkbook } = require('./customs-excel-export');
 
 const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
@@ -14,6 +15,7 @@ const customsDataFile = path.join(__dirname, 'customs-coordination-data.json');
 const customsSettingsFile = path.join(__dirname, 'customs-settings.json');
 const customsDataEpoch = 'warehouse-paste-only-v2-tax-formulas';
 const customsReferenceFile = path.join(__dirname, 'customs-declared-goods.json');
+const customsExcelTemplateFile = path.join(publicDir, 'modules', 'ktt-customs', 'templates', 'ecus-customs-template.xlsx');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -834,6 +836,26 @@ http.createServer(async (req, res) => {
       return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, settings: customsSettings(), user: profile(user) });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
   }
+  if (pathname === '/api/customs-documents/export' && req.method === 'GET') {
+    if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền xuất Chứng Từ HQ.' });
+    try {
+      const batchId = String(new URL(req.url, 'https://dashboard.local').searchParams.get('batchId') || '').trim();
+      if (!batchId) return send(res, 400, { error: 'Vui lòng chọn một chuyến xe đã bốc.' });
+      const rows = customsVisibleRows(user, customsRows());
+      const loading = rows.flatMap(row => row.loadingRecords || []).find(item => item.batchId === batchId);
+      if (!loading) return send(res, 404, { error: 'Không tìm thấy chuyến xe trong phạm vi dữ liệu của bạn.' });
+      const buffer = await buildCustomsWorkbook({ templatePath: customsExcelTemplateFile, shipments: rows, batchId, exchangeRate: customsSettings().exchangeRateUsdVnd });
+      const safeTruck = String(loading.truckCode || 'xe').replace(/[^\p{L}\p{N}._-]+/gu, '-');
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`Chung-tu-HQ-${safeTruck}-${loading.loadingDate || ''}.xlsx`)}`,
+        'Content-Length': buffer.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      return res.end(buffer);
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể tạo file Chứng Từ HQ.' }); }
+  }
   if (pathname === '/api/customs-coordination' && req.method === 'POST') {
     if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.' });
     try {
@@ -1051,6 +1073,7 @@ http.createServer(async (req, res) => {
       const sessionBridge = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'live-session-bridge.js'), 'utf8'));
       const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
       const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
+      const customsDocumentsWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'customs-documents-workspace.js'), 'utf8'));
       content = content.toString('utf8')
         // The locked handoff uses a nested srcdoc iframe.  Permit it to call
         // the same-origin API so its view and actions use the real session.
@@ -1064,7 +1087,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content

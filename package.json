@@ -8,5 +8,8 @@
     "add-user": "node create-user.js",
     "test:crm-new": "node test-crm-new.js",
     "test:customs": "node test-customs-coordination.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
   }
 }
