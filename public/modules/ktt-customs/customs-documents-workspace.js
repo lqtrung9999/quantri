@@ -19,10 +19,13 @@
     <section class="cd-export"><div><h2>Xuất file Excel khai ECUS theo xe</h2><p>File xuất giữ nguyên các sheet, công thức và định dạng của mẫu đã cung cấp.</p></div><select id="cd-trip"><option value="">Chọn mã xe / chuyến bốc</option></select><button class="cf-action primary" id="cd-export" disabled>Xuất file Excel ECUS</button></section>`;
   main.appendChild(workspace);
 
+  const declaredNav = [...root.querySelectorAll('.cf-nav button')].find(button => /Dữ liệu đã khai/i.test(button.textContent || ''));
+  const nav = document.createElement('button');
+  nav.id = 'cf-customs-documents-open';
+  nav.innerHTML = '<span class="ico">▦</span><span>Chứng Từ HQ</span>';
+  declaredNav?.insertAdjacentElement('afterend', nav);
   const navButtons = [...root.querySelectorAll('.cf-nav button')];
-  let nav = navButtons.find(button => /Dữ liệu đã khai/i.test(button.textContent || ''));
   const coordination = navButtons.find(button => /Khai báo\s*&\s*xếp xe/i.test(button.textContent || ''));
-  if (nav) nav.innerHTML = '<span class="ico">▦</span><span>Chứng Từ HQ</span>';
 
   function flattened() {
     const query = workspace.querySelector('#cd-search').value.trim().toLocaleLowerCase('vi-VN');
