@@ -4,6 +4,9 @@
   const endpoint = '/api/customs-coordination';
   let currentUser = null;
 
+  const brandName = document.querySelector('#customs-flow-app .cf-brand span');
+  if (brandName) brandName.textContent = 'KTT Khai Báo HQ';
+
   const esc = value => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const initials = value => String(value || '').trim().split(/\s+/).filter(Boolean).slice(-2).map(word => word[0]).join('').toUpperCase() || 'KTT';
   const status = value => ({ sale_required: 'sale', customs_pending: 'customs', customer_confirmation: 'customer', ready_for_loading: 'ready', loaded: 'loaded' }[value] || 'sale');
