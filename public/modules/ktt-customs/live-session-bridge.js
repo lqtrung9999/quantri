@@ -17,6 +17,7 @@
     if (user.role === 'warehouse_cn') return 'Kho TQ';
     if (user.role === 'accountant') return 'Kế toán';
     if (user.role === 'truck_planner') return 'Điều vận Xếp Xe CN';
+    if (user.role === 'cn_operations') return 'Điều vận Kho TQ & Xếp Xe CN';
     return user.role === 'admin' ? 'Quản trị viên' : 'Nhân viên vận hành';
   };
   const displayDate = value => {

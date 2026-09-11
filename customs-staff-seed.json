@@ -2,5 +2,6 @@
   {"id":"customs-do-manh-chien","name":"KBHQ Đỗ Mạnh Chiến","username":"kbhq.chien","role":"customs_declaration","passwordHash":"sha256$initial$179bdeb95e38fcda1a56c9296a1b24bd2b99f9d3ba2b594b1e64a5dbc334f332"},
   {"id":"customs-tran-huyen-phuong","name":"KBHQ Trần Huyền Phương","username":"kbhq.huyen.phuong","role":"customs_declaration","passwordHash":"sha256$initial$179bdeb95e38fcda1a56c9296a1b24bd2b99f9d3ba2b594b1e64a5dbc334f332"},
   {"id":"customs-nguyen-phuong-thao","name":"KBHQ Nguyễn Phương Thảo","username":"kbhq.phuong.thao","role":"customs_declaration","passwordHash":"sha256$initial$179bdeb95e38fcda1a56c9296a1b24bd2b99f9d3ba2b594b1e64a5dbc334f332"},
-  {"id":"customs-hoang-van-dinh","name":"KBHQ Hoàng Văn Đình","username":"kbhq.van.dinh","role":"customs_declaration","passwordHash":"sha256$initial$179bdeb95e38fcda1a56c9296a1b24bd2b99f9d3ba2b594b1e64a5dbc334f332"}
+  {"id":"customs-hoang-van-dinh","name":"KBHQ Hoàng Văn Đình","username":"kbhq.van.dinh","role":"customs_declaration","passwordHash":"sha256$initial$179bdeb95e38fcda1a56c9296a1b24bd2b99f9d3ba2b594b1e64a5dbc334f332"},
+  {"id":"cn-operations-trang","name":"Trang Điều Vận","username":"trang.dieuvan","role":"cn_operations","passwordHash":"scrypt$63369c10779226531919a5da3a4d269a$212ace05ce3b74e308aff0e05140ffb47e9aba8f51a21c8370d5ab6defe96f95d902538155a63625f454180c9e5edb809c27821c6a974135aa7af025cf1e623d"}
 ]

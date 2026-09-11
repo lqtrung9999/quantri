@@ -173,7 +173,7 @@ function saveCustomerManagementRows(rows) {
 }
 function canUseCustomerManagement(user) { return user?.role === 'admin'; }
 function canUseAccountingDemo(user) { return user && ['admin', 'accountant'].includes(user.role); }
-const customsRoles = new Set(['admin', 'accountant', 'sale', 'warehouse_cn', 'customs_declaration', 'manager', 'truck_planner']);
+const customsRoles = new Set(['admin', 'accountant', 'sale', 'warehouse_cn', 'customs_declaration', 'manager', 'truck_planner', 'cn_operations']);
 function canonicalUserRole(user) {
   const raw = normalized(user?.role);
   const aliases = {
@@ -183,7 +183,8 @@ function canonicalUserRole(user) {
     WAREHOUSE: 'warehouse_cn', WAREHOUSECHINA: 'warehouse_cn', KHOTQ: 'warehouse_cn', KHOTRUNGQUOC: 'warehouse_cn',
     CUSTOMS: 'customs_declaration', CUSTOMSHQ: 'customs_declaration', DECLARATION: 'customs_declaration', KHAIBAO: 'customs_declaration', KHAIBAOHQ: 'customs_declaration', NHANVIENKHAIBAO: 'customs_declaration',
     MANAGEMENT: 'manager', QUANLY: 'manager',
-    TRUCKPLANNER: 'truck_planner', DIEUVAN: 'truck_planner', XEPXECN: 'truck_planner'
+    TRUCKPLANNER: 'truck_planner', DIEUVAN: 'truck_planner', XEPXECN: 'truck_planner',
+    CNOPERATIONS: 'cn_operations', DIEUVANKHOTQ: 'cn_operations'
   };
   if (aliases[raw]) return aliases[raw];
   if (customsRoles.has(user?.role)) return user.role;
@@ -192,7 +193,7 @@ function canonicalUserRole(user) {
   return String(user?.role || '').trim();
 }
 function canUseCustoms(user) { return Boolean(user && customsRoles.has(canonicalUserRole(user))); }
-function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn'].includes(user.role)); }
+function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn', 'cn_operations'].includes(user.role)); }
 function customsActorRole(user) {
   if (['admin', 'manager'].includes(user?.role)) return 'manager';
   if (user?.role === 'accountant') return 'accounting';
@@ -880,7 +881,7 @@ http.createServer(async (req, res) => {
       const { action, id, record } = await readJson(req), rows = customsRows();
       const privileged = user.role === 'admin';
       const team = leaderTeam(user);
-      const canWarehouse = privileged || user.role === 'manager' || user.role === 'warehouse_cn';
+      const canWarehouse = privileged || user.role === 'manager' || user.role === 'warehouse_cn' || user.role === 'cn_operations';
       const canCustoms = privileged || user.role === 'customs_declaration';
       const canAccounting = privileged || user.role === 'accountant';
       if (action === 'update_exchange_rate') {
@@ -1007,7 +1008,7 @@ http.createServer(async (req, res) => {
         const from = shipment.status, approved = action === 'customer_approved'; shipment.status = approved ? 'ready_for_loading' : 'customs_pending'; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, action, from, shipment.status, approved ? 'Khai báo xác nhận khách; sẵn sàng xếp xe.' : String(record?.content || 'Khai báo ghi nhận yêu cầu chỉnh sửa thông tin.').slice(0, 4000)); saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }
       if (action === 'assign_truck') {
-        if (!(privileged || user.role === 'truck_planner')) return send(res, 403, { error: 'Chỉ Điều vận Xếp Xe CN hoặc Admin được tạo danh sách bốc xe.' });
+        if (!(privileged || ['truck_planner', 'cn_operations'].includes(user.role))) return send(res, 403, { error: 'Chỉ Điều vận Xếp Xe CN hoặc Admin được tạo danh sách bốc xe.' });
         const truckCode = String(record?.truckCode || '').trim().slice(0, 80);
         const loadingDate = String(record?.loadingDate || '').trim().slice(0, 10);
         const assignments = Array.isArray(record?.assignments) ? record.assignments.slice(0, 500) : [];
@@ -1039,7 +1040,7 @@ http.createServer(async (req, res) => {
         saveCustomsRows(rows); return send(res, 200, { ok: true, batchId, updated: prepared.length });
       }
       if (action === 'revert_loading') {
-        if (!(privileged || user.role === 'truck_planner')) return send(res, 403, { error: 'Chỉ Điều vận Xếp Xe CN hoặc Admin được hoàn tác bốc xe.' });
+        if (!(privileged || ['truck_planner', 'cn_operations'].includes(user.role))) return send(res, 403, { error: 'Chỉ Điều vận Xếp Xe CN hoặc Admin được hoàn tác bốc xe.' });
         const loadingId = String(record?.loadingId || '');
         shipment.loadingRecords = Array.isArray(shipment.loadingRecords) ? shipment.loadingRecords : [];
         const index = shipment.loadingRecords.findIndex(entry => entry.id === loadingId);

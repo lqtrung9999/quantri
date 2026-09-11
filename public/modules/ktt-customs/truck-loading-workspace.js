@@ -11,7 +11,7 @@
   const loadedM3 = row => (row.loadingRecords || []).reduce((sum, item) => sum + num(item.volumeM3), 0);
   const remainPacks = row => Math.max(0, num(row.packs) - loadedPacks(row));
   const remainM3 = row => Math.max(0, num(row.m3) - loadedM3(row));
-  const canEdit = () => ['admin', 'truck_planner'].includes(window.KTT_CUSTOMS_SESSION?.user?.role);
+  const canEdit = () => ['admin', 'truck_planner', 'cn_operations'].includes(window.KTT_CUSTOMS_SESSION?.user?.role);
 
   const workspace = document.createElement('section');
   workspace.id = 'cf-truck-workspace'; workspace.hidden = true;
