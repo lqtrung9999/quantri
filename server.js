@@ -193,6 +193,7 @@ function canonicalUserRole(user) {
   return String(user?.role || '').trim();
 }
 function canUseCustoms(user) { return Boolean(user && customsRoles.has(canonicalUserRole(user))); }
+function isCustomsOnlyUser(user) { return Boolean(user && ['customs_declaration', 'cn_operations'].includes(canonicalUserRole(user))); }
 function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn', 'cn_operations'].includes(user.role)); }
 function customsActorRole(user) {
   if (['admin', 'manager'].includes(user?.role)) return 'manager';
@@ -1060,6 +1061,7 @@ http.createServer(async (req, res) => {
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (isCustomsOnlyUser(user)) { res.writeHead(302, { Location: '/customs-coordination.html' }); return res.end(); }
     const appVersion = Math.floor(fs.statSync(path.join(publicDir, 'crm-new-app.js')).mtimeMs);
     return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', `<script src="/crm-new-dashboard-link.js?v=${appVersion}"></script><script src="/crm-new-app.js?v=${appVersion}"></script></body>`), 'text/html; charset=utf-8'));
   }
@@ -1116,12 +1118,12 @@ http.createServer(async (req, res) => {
       return sendFrameAsset(res, 200, content);
     });
   }
-  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); if (user.role === 'customs_declaration') return send(res, 403, { error: 'Tài khoản Khai báo HQ chỉ được sử dụng khu vực Khai Báo HQ.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
+  if (pathname === '/api/data') { if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' }); if (isCustomsOnlyUser(user)) return send(res, 403, { error: 'Tài khoản này chỉ được sử dụng khu vực Khai Báo HQ.' }); try { const query = new URL(req.url, 'https://dashboard.local').searchParams, report = query.get('report') === 'ck' ? 'ck' : 'cn', scope = query.get('scope') === 'team' ? 'team' : 'personal'; return send(res, 200, { user: profile(user), report, scope, data: await dashboardData(user, report, scope) }); } catch (error) { console.error(`Dashboard API failed: ${error.message}`); return send(res, 502, { error: error.message || 'Không thể tải dữ liệu Dashboard.' }); } }
   if (pathname === '/login' && !user) return fs.readFile(path.join(publicDir, 'login.html'), (error, content) => error ? send(res, 500, 'Không thể tải trang đăng nhập.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
   // Customs declarants work in an isolated module.  Keep the management dashboard
   // and its source data inaccessible even when the root URL is entered manually.
-  if (user.role === 'customs_declaration' && (pathname === '/' || pathname === '/index.html')) {
+  if (isCustomsOnlyUser(user) && (pathname === '/' || pathname === '/index.html')) {
     res.writeHead(302, { Location: '/customs-coordination.html' });
     return res.end();
   }
