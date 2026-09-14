@@ -13,7 +13,7 @@ const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json'
 const customerManagementDataFile = path.join(__dirname, 'customer-management-data.json');
 const customsDataFile = path.join(__dirname, 'customs-coordination-data.json');
 const customsSettingsFile = path.join(__dirname, 'customs-settings.json');
-const customsDataEpoch = 'warehouse-paste-only-v2-tax-formulas';
+const customsDataEpoch = 'warehouse-test-launch-2026-09-14';
 const customsReferenceFile = path.join(__dirname, 'customs-declared-goods.json');
 const customsExcelTemplateFile = path.join(publicDir, 'modules', 'ktt-customs', 'templates', 'ecus-customs-template.xlsx');
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
@@ -208,7 +208,15 @@ function customsRows() {
     // Customs HQ has one source of truth: rows pasted through Nhập kho TQ.
     // Any legacy/demo/Lark rows are removed at the storage layer as well.
     const approved = list.filter(row => row && row.dataEpoch === customsDataEpoch && row.source === 'warehouse_paste');
-    if (approved.length !== list.length) saveCustomsRows(approved);
+    if (approved.length !== list.length) {
+      if (list.length) {
+        const backupDir = path.join(__dirname, 'logs');
+        const backupFile = path.join(backupDir, 'customs-backup-before-test-2026-09-14.json');
+        fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
+        if (!fs.existsSync(backupFile)) fs.writeFileSync(backupFile, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 });
+      }
+      saveCustomsRows(approved);
+    }
     return approved;
   }
   catch { throw new Error('Dữ liệu điều phối khai báo không hợp lệ.'); }
@@ -905,6 +913,8 @@ http.createServer(async (req, res) => {
         if (!canWarehouse) return send(res, 403, { error: 'Chỉ Kho TQ hoặc Quản lý được nhập bảng hàng về kho.' });
         const incoming = Array.isArray(record?.rows) ? record.rows.slice(0, 1000) : [];
         if (!incoming.length) return send(res, 400, { error: 'Chưa có dòng dữ liệu hợp lệ để lưu.' });
+        const existingCodes = [...new Set(incoming.map(item => String(item?.cargoCode || '').trim()).filter(code => rows.some(row => normalized(row.cargoCode) === normalized(code))))];
+        if (existingCodes.length) return send(res, 409, { error: `Mã hàng đã có trên hệ thống: ${existingCodes.join(', ')}. Vui lòng bỏ các mã trùng trước khi lưu.`, duplicateCodes: existingCodes });
         const seen = new Set();
         const importedAt = new Date().toISOString();
         let created = 0, updated = 0;
@@ -926,14 +936,6 @@ http.createServer(async (req, res) => {
             volumeM3: customsNumber(item?.volumeM3)
           };
           if (!sourceRow.ownerName || !Number.isFinite(vietnameseDateStamp(sourceRow.operationDate))) continue;
-          const shipment = rows.find(row => normalized(row.cargoCode) === normalized(cargoCode));
-          if (shipment) {
-            for (const key of Object.keys(sourceRow)) if (sourceRow[key] !== undefined && shipment[key] !== sourceRow[key]) shipment[key] = sourceRow[key];
-            shipment.source = 'warehouse_paste'; shipment.dataEpoch = customsDataEpoch; shipment.updatedAt = importedAt;
-            customsHistory(shipment, user, 'update_warehouse_paste', shipment.status, shipment.status, 'Kho TQ cập nhật dữ liệu từ bảng dán.');
-            updated += 1;
-            continue;
-          }
           const createdShipment = {
             id: crypto.randomUUID(), ...sourceRow, lotCode: '', source: 'warehouse_paste', dataEpoch: customsDataEpoch, status: 'sale_required', documentStatus: 'Chưa kiểm tra',
             createdAt: importedAt, updatedAt: importedAt,

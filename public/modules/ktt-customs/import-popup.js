@@ -68,6 +68,8 @@
     if (!row.cargoCode) errors.push('Thiếu mã hàng');
     if (!row.ownerName) errors.push('Thiếu chủ hàng');
     if (row.columnCount < 11) errors.push('Thiếu cột');
+    const existing = Array.isArray(window.KTT_CUSTOMS_DATA) && window.KTT_CUSTOMS_DATA.some(item => String(item.code || '').trim().toLocaleLowerCase('vi-VN') === row.cargoCode.trim().toLocaleLowerCase('vi-VN'));
+    if (row.cargoCode && existing) errors.push('Mã đã có trên hệ thống');
     return errors;
   };
   const parse = () => {
@@ -92,7 +94,7 @@
     get('#cf-import-summary').textContent = parsedRows.length ? `${parsedRows.length} dòng đã nhận · ${clean.length} dòng sẵn sàng lưu${bad ? ` · ${bad} dòng cần kiểm tra` : ''}` : 'Chưa có dữ liệu để xem trước.';
     const message = get('#cf-import-message');
     message.className = `cf-import-message ${bad ? 'error' : parsedRows.length ? 'ok' : ''}`;
-    message.textContent = !parsedRows.length ? '' : bad ? 'Kiểm tra các dòng thiếu thông tin hoặc trùng mã hàng trong bảng dán.' : 'Dữ liệu hợp lệ. Mã mới sẽ vào luồng Chờ Sale bổ sung.';
+    message.textContent = !parsedRows.length ? '' : bad ? 'Kiểm tra các dòng thiếu thông tin, trùng trong bảng dán hoặc đã có trên hệ thống.' : 'Dữ liệu hợp lệ. Mã mới sẽ vào luồng Chờ Sale bổ sung.';
     get('#cf-import-save').disabled = !clean.length;
     get('#cf-import-preview').innerHTML = parsedRows.length ? parsedRows.map(row => {
       const errors = errorsFor(row); const duplicate = codeCounts.get(row.cargoCode.trim().toLocaleLowerCase('vi-VN')) > 1;

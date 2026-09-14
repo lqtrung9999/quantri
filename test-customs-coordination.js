@@ -32,11 +32,14 @@ assert.equal(135 - loadingRecords.reduce((sum, item) => sum + item.packageCount,
 assert.equal(9 - loadingRecords.reduce((sum, item) => sum + item.volumeM3, 0), 2.5, 'Xếp một phần phải giữ đúng số m3 còn lại');
 const truckWorkspace = fs.readFileSync('public/modules/ktt-customs/truck-loading-workspace.js', 'utf8');
 const serverSource = fs.readFileSync('server.js', 'utf8');
+const warehouseImport = fs.readFileSync('public/warehouse-cn-import.js', 'utf8');
 assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
 assert.match(truckWorkspace, /revert_loading/);
 assert.match(serverSource, /function isCustomsOnlyUser\(user\).*customs_declaration.*cn_operations/, 'Điều vận Trang phải bị giới hạn trong phân hệ Khai Báo HQ');
 assert.match(serverSource, /isCustomsOnlyUser\(user\).*Location: '\/customs-coordination\.html'/, 'Tài khoản giới hạn phải được chuyển thẳng vào Khai Báo HQ');
+assert.match(serverSource, /duplicateCodes: existingCodes/, 'Máy chủ phải từ chối mã hàng đã tồn tại');
+assert.match(warehouseImport, /Mã đã có trên hệ thống/, 'Trang nhập kho phải cảnh báo mã hàng đã tồn tại');
 history.push({ actorRole: 'sale', action: 'sale_submit' });
 assert.equal(history.length, 1, 'Mọi thao tác phải thêm lịch sử');
 const reference = JSON.parse(fs.readFileSync('customs-declared-goods.json', 'utf8'));
