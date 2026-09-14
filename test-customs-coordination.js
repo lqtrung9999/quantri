@@ -34,6 +34,7 @@ const truckWorkspace = fs.readFileSync('public/modules/ktt-customs/truck-loading
 const serverSource = fs.readFileSync('server.js', 'utf8');
 const warehouseImport = fs.readFileSync('public/warehouse-cn-import.js', 'utf8');
 const processingWorkspace = fs.readFileSync('public/modules/ktt-customs/processing-workspace.js', 'utf8');
+const warehouseWorkspace = fs.readFileSync('public/modules/ktt-customs/warehouse-workspace.js', 'utf8');
 assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
 assert.match(truckWorkspace, /revert_loading/);
@@ -48,6 +49,12 @@ assert.match(processingWorkspace, /customs-sale-excel\/start[\s\S]*customs-sale-
 assert.doesNotMatch(processingWorkspace, /vendor\/exceljs|20 MB/, 'Không được phụ thuộc bộ đọc Excel trong trình duyệt hoặc giới hạn cũ 20 MB');
 assert.match(serverSource, /ExcelJS\.stream\.xlsx\.WorkbookReader/, 'Máy chủ phải đọc Excel tuần tự để tránh giữ toàn bộ file lớn trong bộ nhớ');
 assert.match(serverSource, /imagesSkipped: true/, 'Máy chủ phải mặc định bỏ qua ảnh trong file Excel');
+assert.match(processingWorkspace, /xp-clone-line[\s\S]*xp-delete-line/, 'Sale và Khai báo HQ phải có thao tác nhân bản và xóa dòng');
+assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
+assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');
+assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');
+assert.match(serverSource, /filter\(row => row\.status !== 'returned_to_customer'\)/, 'Mã trả khách phải được loại khỏi luồng xử lý chung');
+assert.match(warehouseWorkspace, /Nhập dữ liệu mới[\s\S]*Trả lại khách hàng[\s\S]*Lưu sửa đổi/, 'Trang Nhập kho TQ phải có danh sách quản lý, nhập mới, chỉnh sửa và trả khách');
 assert.match(serverSource, /productLines\.slice\(0, 300\)/, 'List Sale phải hỗ trợ lô hàng tới 300 dòng');
 assert.match(serverSource, /customsLines\.slice\(0, 300\)/, 'List Khai báo HQ phải hỗ trợ lô hàng tới 300 dòng');
 history.push({ actorRole: 'sale', action: 'sale_submit' });

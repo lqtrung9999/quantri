@@ -131,6 +131,7 @@
       mergeIntoWorkList(clean);
       get('#cf-import-note').textContent = `Đã lưu ${result.total} mã hàng (${result.created} mã mới, ${result.updated} mã cập nhật). Các mã đã xuất hiện trong công việc chung.`;
       get('#cf-import-paste').value = ''; parsedRows = []; renderPreview();
+      window.dispatchEvent(new CustomEvent('ktt-warehouse-imported'));
       setTimeout(() => modal.classList.remove('open'), 900);
     } catch (error) {
       get('#cf-import-note').textContent = error.message || 'Không thể lưu dữ liệu.';

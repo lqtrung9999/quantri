@@ -955,7 +955,10 @@ http.createServer(async (req, res) => {
       const query = new URL(req.url, 'https://dashboard.local').searchParams;
       const term = String(query.get('reference') || '').trim().toLocaleLowerCase('vi-VN');
       const references = term ? customsReferences().filter(row => `${row.hsCode || row[1] || ''} ${row.goodsName || row[2] || ''}`.toLocaleLowerCase('vi-VN').includes(term)).slice(0, 15) : [];
-      return send(res, 200, { rows: customsVisibleRows(user, customsRows()), references, settings: customsSettings(), user: profile(user) });
+      const visibleRows = customsVisibleRows(user, customsRows());
+      const warehouseView = query.get('view') === 'warehouse';
+      if (warehouseView && !canImportCustomsWarehouse(user)) return send(res, 403, { error: 'Bạn không có quyền quản lý dữ liệu Nhập kho TQ.' });
+      return send(res, 200, { rows: warehouseView ? visibleRows : visibleRows.filter(row => row.status !== 'returned_to_customer'), references, settings: customsSettings(), user: profile(user) });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/customs-documents/export' && req.method === 'GET') {
@@ -1048,6 +1051,34 @@ http.createServer(async (req, res) => {
       }
       const shipment = rows.find(row => row.id === id);
       if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng.' });
+      if (action === 'update_warehouse') {
+        if (!canWarehouse) return send(res, 403, { error: 'Chỉ Điều vận Kho TQ hoặc Quản lý được sửa Mã hàng, KG và M³.' });
+        const cargoCode = String(record?.cargoCode || '').trim().slice(0, 80), weightKg = customsNumber(record?.weightKg), volumeM3 = customsNumber(record?.volumeM3);
+        if (!cargoCode) return send(res, 400, { error: 'Mã hàng không được để trống.' });
+        if (rows.some(row => row.id !== shipment.id && normalized(row.cargoCode) === normalized(cargoCode))) return send(res, 409, { error: `Mã hàng ${cargoCode} đã có trên hệ thống.` });
+        if (weightKg < 0 || volumeM3 < 0) return send(res, 400, { error: 'KG và M³ không được nhỏ hơn 0.' });
+        const before = { cargoCode: shipment.cargoCode, weightKg: shipment.weightKg, volumeM3: shipment.volumeM3 };
+        shipment.cargoCode = cargoCode; shipment.weightKg = weightKg; shipment.volumeM3 = volumeM3; shipment.updatedAt = new Date().toISOString();
+        const changes = customsChangedFields(before, shipment, { cargoCode: 'Mã hàng', weightKg: 'KG', volumeM3: 'M³' });
+        customsHistory(shipment, user, 'warehouse_update', shipment.status, shipment.status, `Điều chỉnh ${changes}: Mã hàng ${before.cargoCode || '—'} → ${cargoCode}; KG ${before.weightKg || 0} → ${weightKg}; M³ ${before.volumeM3 || 0} → ${volumeM3}.`);
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'return_to_customer') {
+        if (!canWarehouse) return send(res, 403, { error: 'Chỉ Điều vận Kho TQ hoặc Quản lý được trả hàng cho khách.' });
+        if (shipment.status === 'loaded') return send(res, 409, { error: 'Mã hàng đã bốc hết lên xe, không thể chuyển sang Trả lại khách hàng.' });
+        const reason = String(record?.reason || '').trim().slice(0, 1000);
+        if (!reason) return send(res, 400, { error: 'Vui lòng nhập lý do trả lại khách hàng.' });
+        const from = shipment.status; shipment.statusBeforeCustomerReturn = from; shipment.status = 'returned_to_customer'; shipment.returnedToCustomerReason = reason; shipment.returnedToCustomerAt = new Date().toISOString(); shipment.updatedAt = shipment.returnedToCustomerAt;
+        customsHistory(shipment, user, 'return_to_customer', from, shipment.status, `Trả lại khách hàng: ${reason}`);
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
+      if (action === 'restore_customer_return') {
+        if (!canWarehouse) return send(res, 403, { error: 'Chỉ Điều vận Kho TQ hoặc Quản lý được khôi phục mã hàng.' });
+        if (shipment.status !== 'returned_to_customer') return send(res, 409, { error: 'Mã hàng không ở trạng thái Trả lại khách hàng.' });
+        const from = shipment.status, restored = ['sale_required', 'customs_pending', 'customer_confirmation', 'ready_for_loading'].includes(shipment.statusBeforeCustomerReturn) ? shipment.statusBeforeCustomerReturn : 'sale_required';
+        shipment.status = restored; shipment.updatedAt = new Date().toISOString(); customsHistory(shipment, user, 'restore_customer_return', from, restored, 'Khôi phục mã hàng vào quy trình xử lý.');
+        saveCustomsRows(rows); return send(res, 200, { record: shipment });
+      }
       const managesShipment = Boolean(team && (normalized(shipment.saleTeam) === normalized(team) || normalized(shipment.saleOwner).startsWith(normalized(team))));
       const owns = sameSale(shipment.saleOwner, user.sale) || sameSale(shipment.saleOwner, user.name);
       if (action === 'save_sale' || action === 'save_sale_draft') {
@@ -1191,6 +1222,7 @@ http.createServer(async (req, res) => {
       const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
       const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
       const customsDocumentsWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'customs-documents-workspace.js'), 'utf8'));
+      const warehouseWorkspace = canImportCustomsWarehouse(user) ? encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'warehouse-workspace.js'), 'utf8')) : '';
       content = content.toString('utf8')
         // The locked handoff uses a nested srcdoc iframe.  Permit it to call
         // the same-origin API so its view and actions use the real session.
@@ -1204,7 +1236,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content
