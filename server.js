@@ -7,6 +7,7 @@ const { buildCustomsWorkbook } = require('./customs-excel-export');
 const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
 const customsStaffSeedFile = path.join(__dirname, 'customs-staff-seed.json');
+const dashboardStaffSeedFile = path.join(__dirname, 'dashboard-staff-seed.json');
 const crmNewDataFile = path.join(__dirname, 'crm-new-data.json');
 const crmNewSyncConfigFile = path.join(__dirname, 'crm-new-sync-config.json');
 const accountingDemoDataFile = path.join(__dirname, 'accounting-entry-demo.json');
@@ -38,16 +39,18 @@ function sendFrameAsset(res, status, body, type = 'text/html; charset=utf-8') {
 
 function users() {
   const list = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
-  if (!fs.existsSync(customsStaffSeedFile)) return list;
-  try {
-    const seeds = JSON.parse(fs.readFileSync(customsStaffSeedFile, 'utf8'));
-    let changed = false;
-    for (const seed of Array.isArray(seeds) ? seeds : []) {
-      if (!seed?.username || list.some(account => String(account.username).toLowerCase() === String(seed.username).toLowerCase())) continue;
-      list.push(seed); changed = true;
-    }
-    if (changed) saveUsers(list);
-  } catch { /* A malformed optional seed must never block login. */ }
+  let changed = false;
+  for (const seedFile of [customsStaffSeedFile, dashboardStaffSeedFile]) {
+    if (!fs.existsSync(seedFile)) continue;
+    try {
+      const seeds = JSON.parse(fs.readFileSync(seedFile, 'utf8'));
+      for (const seed of Array.isArray(seeds) ? seeds : []) {
+        if (!seed?.username || list.some(account => String(account.username).toLowerCase() === String(seed.username).toLowerCase())) continue;
+        list.push(seed); changed = true;
+      }
+    } catch { /* A malformed optional seed must never block login. */ }
+  }
+  if (changed) saveUsers(list);
   return list;
 }
 function crmNewSyncConfig() {
