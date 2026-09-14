@@ -33,6 +33,7 @@ assert.equal(9 - loadingRecords.reduce((sum, item) => sum + item.volumeM3, 0), 2
 const truckWorkspace = fs.readFileSync('public/modules/ktt-customs/truck-loading-workspace.js', 'utf8');
 const serverSource = fs.readFileSync('server.js', 'utf8');
 const warehouseImport = fs.readFileSync('public/warehouse-cn-import.js', 'utf8');
+const processingWorkspace = fs.readFileSync('public/modules/ktt-customs/processing-workspace.js', 'utf8');
 assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
 assert.match(truckWorkspace, /revert_loading/);
@@ -41,7 +42,12 @@ assert.match(serverSource, /isCustomsOnlyUser\(user\).*Location: '\/customs-coor
 assert.match(serverSource, /duplicateCodes: existingCodes/, 'Máy chủ phải từ chối mã hàng đã tồn tại');
 assert.match(warehouseImport, /Mã đã có trên hệ thống/, 'Trang nhập kho phải cảnh báo mã hàng đã tồn tại');
 assert.match(truckWorkspace, /cn_operations/, 'Điều vận Trang phải được thao tác Xếp Xe CN');
-assert.match(fs.readFileSync('public/modules/ktt-customs/processing-workspace.js', 'utf8'), /xp-sale-import[\s\S]*xp-add-sale-line[\s\S]*xp-add-customs-line/, 'Xử lý khai báo phải có nhập Excel và nút thêm dòng cho Sale, Khai báo HQ');
+assert.match(processingWorkspace, /xp-sale-import[\s\S]*xp-add-sale-line[\s\S]*xp-add-customs-line/, 'Xử lý khai báo phải có nhập Excel và nút thêm dòng cho Sale, Khai báo HQ');
+assert.match(processingWorkspace, /500 \* 1024 \* 1024/, 'Nhập Excel phía trình duyệt phải hỗ trợ tối đa 500 MB');
+assert.match(processingWorkspace, /customs-sale-excel\/start[\s\S]*customs-sale-excel\/chunk[\s\S]*customs-sale-excel\/finish/, 'File Excel phải được tải theo từng phần và đọc trên máy chủ');
+assert.doesNotMatch(processingWorkspace, /vendor\/exceljs|20 MB/, 'Không được phụ thuộc bộ đọc Excel trong trình duyệt hoặc giới hạn cũ 20 MB');
+assert.match(serverSource, /ExcelJS\.stream\.xlsx\.WorkbookReader/, 'Máy chủ phải đọc Excel tuần tự để tránh giữ toàn bộ file lớn trong bộ nhớ');
+assert.match(serverSource, /imagesSkipped: true/, 'Máy chủ phải mặc định bỏ qua ảnh trong file Excel');
 assert.match(serverSource, /productLines\.slice\(0, 300\)/, 'List Sale phải hỗ trợ lô hàng tới 300 dòng');
 assert.match(serverSource, /customsLines\.slice\(0, 300\)/, 'List Khai báo HQ phải hỗ trợ lô hàng tới 300 dòng');
 history.push({ actorRole: 'sale', action: 'sale_submit' });

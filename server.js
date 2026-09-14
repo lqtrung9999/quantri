@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const ExcelJS = require('exceljs');
 const { buildCustomsWorkbook } = require('./customs-excel-export');
 
 const publicDir = path.join(__dirname, 'public');
@@ -27,6 +28,10 @@ let customsWarehouseSyncCache = { expiresAt: 0 };
 const trackingRate = new Map();
 let crmNewSyncState = { configured: false, ok: false, pending: false, pendingSince: '', updatedAt: '', error: '' };
 let crmNewSyncPromise = null;
+const saleExcelUploads = new Map();
+const saleExcelUploadDir = path.join(__dirname, 'logs', 'sale-excel-uploads');
+const saleExcelMaxBytes = 500 * 1024 * 1024;
+const saleExcelChunkBytes = 1024 * 1024;
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
@@ -35,6 +40,53 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 function sendFrameAsset(res, status, body, type = 'text/html; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN' });
   res.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body));
+}
+function readRaw(req, maximumBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0;
+    req.on('data', chunk => { size += chunk.length; if (size > maximumBytes) { reject(new Error('Phần tải lên vượt quá dung lượng cho phép.')); req.destroy(); return; } chunks.push(chunk); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+function excelCellText(value) {
+  if (value == null) return '';
+  if (typeof value !== 'object') return String(value).trim();
+  if (Array.isArray(value.richText)) return value.richText.map(part => part.text || '').join('').trim();
+  if (value.result != null) return String(value.result).trim();
+  if (value.text != null) return String(value.text).trim();
+  return '';
+}
+async function parseSaleExcelFile(filePath) {
+  const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath, { entries: 'ignore', sharedStrings: 'cache', hyperlinks: 'ignore', styles: 'ignore', worksheets: 'emit' });
+  const sourceRows = []; let sheetName = '';
+  for await (const worksheet of workbook) {
+    sheetName = worksheet.name || 'Sheet1';
+    for await (const row of worksheet) {
+      if (row.number <= 2000) sourceRows.push({ number: row.number, values: Array.from({ length: Math.min(60, Math.max(15, row.cellCount || 0)) }, (_, index) => excelCellText(row.getCell(index + 1).value)) });
+      if (sourceRows.length >= 2000) break;
+    }
+    break;
+  }
+  let headerIndex = sourceRows.findIndex(row => { const text = row.values.join(' ').toLocaleLowerCase('vi-VN'); return /tên hàng|tên sản phẩm|tên hàng cần khai/.test(text) && /số lượng|sl khai/.test(text); });
+  if (headerIndex < 0) throw new Error('Không tìm thấy dòng tiêu đề Tên hàng và Số lượng trong file.');
+  const header = sourceRows[headerIndex], secondary = sourceRows[headerIndex + 1] || { values: [] }, columnCount = Math.max(header.values.length, secondary.values.length);
+  const headers = Array.from({ length: columnCount }, (_, index) => `${header.values[index] || ''} ${secondary.values[index] || ''}`.toLocaleLowerCase('vi-VN'));
+  const findColumn = patterns => { const index = headers.findIndex(text => patterns.some(pattern => pattern.test(text))); return index < 0 ? 0 : index + 1; };
+  const columns = { model: findColumn([/^mã hàng/, /model/, /mã sản phẩm/]), brand: findColumn([/hãng hàng/, /nhãn hiệu/]), name: findColumn([/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/]), usage: findColumn([/công dụng/]), material: findColumn([/chất liệu/]), weight: findColumn([/trọng lượng/]), size: findColumn([/kích thước/]), specs: findColumn([/công suất/, /điện áp/]), quantity: findColumn([/số lượng khai báo/, /sl khai/]), unit: findColumn([/đơn vị khai báo/, /^đvt/]), price: findColumn([/giá sản phẩm/, /giá hđ/, /đơn giá/]), note: findColumn([/ghi chú/, /note/]) };
+  if (headers.some(text => /tên hàng cần khai/.test(text)) && columnCount >= 15) Object.assign(columns, { model: columns.model || 1, brand: columns.brand || 4, name: columns.name || 5, usage: columns.usage || 6, material: columns.material || 7, weight: columns.weight || 8, size: columns.size || 9, specs: columns.specs || 10, quantity: columns.quantity || 11, unit: columns.unit || 12, price: columns.price || 13, note: columns.note || 15 });
+  if (!columns.name || !columns.quantity) throw new Error('File phải có cột Tên hàng và Số lượng khai báo.');
+  const lines = [];
+  for (const row of sourceRows.slice(headerIndex + 1)) {
+    const read = key => columns[key] ? String(row.values[columns[key] - 1] || '').trim() : '';
+    const name = read('name'), quantity = read('quantity');
+    if (!name || !quantity || /tổng cộng|total|tên hàng|tên sản phẩm/i.test(name) || /số lượng|quantity/i.test(quantity)) continue;
+    const details = [[name, ''], [read('usage'), 'Công dụng'], [read('material'), 'Chất liệu'], [read('brand'), 'Nhãn hiệu'], [read('model'), 'Model'], [read('weight'), 'Trọng lượng'], [read('specs'), 'Thông số']].filter(([value]) => value).map(([value, label]) => label ? `${label}: ${value}` : value);
+    lines.push({ sourceRow: row.number, model: read('model'), name, description: details.join('. '), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note') });
+    if (lines.length >= 300) break;
+  }
+  if (!lines.length) throw new Error('Không tìm thấy dòng sản phẩm hợp lệ trong file Excel.');
+  return { lines, sheetName, imagesSkipped: true };
 }
 
 function users() {
@@ -678,6 +730,45 @@ http.createServer(async (req, res) => {
     return fs.readFile(path.join(publicDir, 'logo-kim-thanh-tin-transparent.png'), (error, content) => error ? send(res, 404, 'Không tìm thấy logo.', 'text/plain; charset=utf-8') : send(res, 200, content, 'image/png'));
   }
   const user = currentUser(req);
+  if (pathname === '/api/customs-sale-excel/start' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    try {
+      for (const [staleId, stale] of saleExcelUploads) if (Date.now() - stale.createdAt > 2 * 60 * 60 * 1000) { saleExcelUploads.delete(staleId); try { fs.unlinkSync(stale.filePath); } catch {} }
+      const { fileName, fileSize, shipmentId } = await readJson(req), size = Number(fileSize || 0), shipment = customsRows().find(row => row.id === shipmentId);
+      if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng cần nhập Excel.' });
+      const team = leaderTeam(user), managesShipment = Boolean(team && (normalized(shipment.saleTeam) === normalized(team) || normalized(shipment.saleOwner).startsWith(normalized(team)))), owns = sameSale(shipment.saleOwner, user.sale) || sameSale(shipment.saleOwner, user.name);
+      if (!(user.role === 'admin' || managesShipment || (user.role === 'sale' && owns)) || shipment.status !== 'sale_required') return send(res, 403, { error: 'Chỉ Sale phụ trách được nhập Excel khi hồ sơ đang chờ Sale bổ sung.' });
+      if (!/\.xlsx$/i.test(String(fileName || ''))) return send(res, 400, { error: 'Chỉ hỗ trợ file Excel định dạng .xlsx.' });
+      if (!(size > 0) || size > saleExcelMaxBytes) return send(res, 400, { error: 'File Excel phải nhỏ hơn 500 MB.' });
+      fs.mkdirSync(saleExcelUploadDir, { recursive: true, mode: 0o700 });
+      const uploadId = crypto.randomUUID(), filePath = path.join(saleExcelUploadDir, `${uploadId}.xlsx`);
+      fs.writeFileSync(filePath, Buffer.alloc(0), { mode: 0o600 }); saleExcelUploads.set(uploadId, { userId: user.id, shipmentId, filePath, fileName: path.basename(String(fileName)), expectedSize: size, received: 0, nextIndex: 0, createdAt: Date.now() });
+      return send(res, 200, { uploadId, chunkSize: 768 * 1024 });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể bắt đầu tải file Excel.' }); }
+  }
+  if (pathname === '/api/customs-sale-excel/chunk' && req.method === 'PUT') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    const query = new URL(req.url, 'https://dashboard.local').searchParams, upload = saleExcelUploads.get(String(query.get('id') || '')), index = Number(query.get('index'));
+    if (!upload || upload.userId !== user.id) return send(res, 404, { error: 'Phiên tải Excel không còn hiệu lực.' });
+    if (index !== upload.nextIndex) return send(res, 409, { error: 'Thứ tự phần tải Excel không hợp lệ.' });
+    try {
+      const chunk = await readRaw(req, saleExcelChunkBytes); if (!chunk.length || upload.received + chunk.length > upload.expectedSize) throw new Error('Dung lượng file tải lên không hợp lệ.');
+      fs.appendFileSync(upload.filePath, chunk); upload.received += chunk.length; upload.nextIndex += 1;
+      return send(res, 200, { ok: true, received: upload.received });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể nhận phần dữ liệu Excel.' }); }
+  }
+  if (pathname === '/api/customs-sale-excel/finish' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    let upload, uploadId = '';
+    try {
+      const body = await readJson(req); uploadId = String(body.uploadId || ''); upload = saleExcelUploads.get(uploadId);
+      if (!upload || upload.userId !== user.id) return send(res, 404, { error: 'Phiên tải Excel không còn hiệu lực.' });
+      if (upload.received !== upload.expectedSize) return send(res, 400, { error: 'File Excel chưa được tải lên đầy đủ.' });
+      const result = await parseSaleExcelFile(upload.filePath);
+      return send(res, 200, { ...result, fileName: upload.fileName });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể đọc file Excel.' }); }
+    finally { if (upload) { saleExcelUploads.delete(uploadId); try { fs.unlinkSync(upload.filePath); } catch {} } }
+  }
   if (pathname === '/api/change-password' && req.method === 'POST') {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     try {
@@ -1064,10 +1155,6 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
-  if (pathname === '/vendor/exceljs.min.js') {
-    if (!user) return send(res, 401, 'Vui lòng đăng nhập.', 'text/plain; charset=utf-8');
-    return fs.readFile(path.join(__dirname, 'node_modules', 'exceljs', 'dist', 'exceljs.min.js'), (error, content) => error ? send(res, 404, 'Không thể tải bộ đọc Excel.', 'text/plain; charset=utf-8') : send(res, 200, content, 'application/javascript; charset=utf-8'));
-  }
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (isCustomsOnlyUser(user)) { res.writeHead(302, { Location: '/customs-coordination.html' }); return res.end(); }

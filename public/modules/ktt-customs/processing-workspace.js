@@ -190,57 +190,30 @@
     all.slice(1).forEach(row => row.remove());
     all[0]?.querySelectorAll('[data-sale-field], [data-customs-field]').forEach(control => { if (control.tagName === 'SELECT') control.value = 'Cái'; else control.value = ''; });
   }
-  const excelState = { card: null, lines: [], fileName: '', imageCount: 0 };
-  function excelValue(row, column) {
-    const value = row.getCell(column)?.value;
-    if (value == null) return '';
-    if (typeof value !== 'object') return String(value).trim();
-    if (Array.isArray(value.richText)) return value.richText.map(part => part.text || '').join('').trim();
-    if (value.result != null) return String(value.result).trim();
-    if (value.text != null) return String(value.text).trim();
-    return '';
-  }
-  async function ensureExcelReader() {
-    if (window.ExcelJS) return;
-    await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/vendor/exceljs.min.js'; script.onload = resolve; script.onerror = () => reject(new Error('Không tải được bộ đọc Excel.')); document.head.appendChild(script); });
-  }
-  async function readSaleExcel(file) {
-    if (!file || file.size > 20 * 1024 * 1024) throw new Error('File Excel phải nhỏ hơn 20 MB.');
-    await ensureExcelReader();
-    const workbook = new window.ExcelJS.Workbook(); await workbook.xlsx.load(await file.arrayBuffer());
-    const sheet = workbook.worksheets[0]; if (!sheet) throw new Error('File Excel không có sheet dữ liệu.');
-    let headerRow = 0;
-    for (let rowNumber = 1; rowNumber <= Math.min(20, sheet.rowCount); rowNumber += 1) {
-      const text = Array.from({ length: Math.min(30, sheet.columnCount) }, (_, index) => excelValue(sheet.getRow(rowNumber), index + 1)).join(' ').toLocaleLowerCase('vi-VN');
-      if (/tên hàng|tên sản phẩm|tên hàng cần khai/.test(text) && /số lượng|sl khai/.test(text)) { headerRow = rowNumber; break; }
-    }
-    if (!headerRow) throw new Error('Không tìm thấy dòng tiêu đề Tên hàng và Số lượng trong file.');
-    const headerTexts = Array.from({ length: sheet.columnCount }, (_, index) => `${excelValue(sheet.getRow(headerRow), index + 1)} ${excelValue(sheet.getRow(headerRow + 1), index + 1)}`.toLocaleLowerCase('vi-VN'));
-    const findColumn = patterns => { const index = headerTexts.findIndex(text => patterns.some(pattern => pattern.test(text))); return index < 0 ? 0 : index + 1; };
-    const columns = {
-      model: findColumn([/^mã hàng/, /model/, /mã sản phẩm/]), brand: findColumn([/hãng hàng/, /nhãn hiệu/]), name: findColumn([/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/]),
-      usage: findColumn([/công dụng/]), material: findColumn([/chất liệu/]), weight: findColumn([/trọng lượng/]), size: findColumn([/kích thước/]), specs: findColumn([/công suất/, /điện áp/]),
-      quantity: findColumn([/số lượng khai báo/, /sl khai/]), unit: findColumn([/đơn vị khai báo/, /^đvt/]), price: findColumn([/giá sản phẩm/, /giá hđ/, /đơn giá/]), note: findColumn([/ghi chú/, /note/])
+  const excelState = { card: null, lines: [], fileName: '', imagesSkipped: true };
+  async function readSaleExcel(file, onProgress) {
+    if (!file || file.size > 500 * 1024 * 1024) throw new Error('File Excel phải nhỏ hơn 500 MB.');
+    const shipmentId = excelState.card?.dataset.id;
+    if (!shipmentId) throw new Error('Không xác định được mã hàng cần nhập Excel.');
+    const request = async (url, options) => {
+      const response = await fetch(url, { credentials: 'same-origin', ...options });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Không thể tải file Excel.');
+      return body;
     };
-    if (headerTexts.some(text => /tên hàng cần khai/.test(text)) && sheet.columnCount >= 15) Object.assign(columns, { model: columns.model || 1, brand: columns.brand || 4, name: columns.name || 5, usage: columns.usage || 6, material: columns.material || 7, weight: columns.weight || 8, size: columns.size || 9, specs: columns.specs || 10, quantity: columns.quantity || 11, unit: columns.unit || 12, price: columns.price || 13, note: columns.note || 15 });
-    if (!columns.name || !columns.quantity) throw new Error('File phải có cột Tên hàng và Số lượng khai báo.');
-    const lines = [];
-    for (let rowNumber = headerRow + 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
-      const row = sheet.getRow(rowNumber), name = excelValue(row, columns.name), quantity = excelValue(row, columns.quantity);
-      if (!name && !quantity) continue;
-      if (!name || !quantity || /tổng cộng|total|tên hàng|tên sản phẩm/i.test(name) || /số lượng|quantity/i.test(quantity)) continue;
-      const read = key => columns[key] ? excelValue(row, columns[key]) : '';
-      const details = [[read('name'), ''], [read('usage'), 'Công dụng'], [read('material'), 'Chất liệu'], [read('brand'), 'Nhãn hiệu'], [read('model'), 'Model'], [read('weight'), 'Trọng lượng'], [read('specs'), 'Thông số']].filter(([value]) => value).map(([value, label]) => label ? `${label}: ${value}` : value);
-      lines.push({ sourceRow: rowNumber, model: read('model'), name, description: details.join('. '), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note') });
-      if (lines.length >= 300) break;
+    const started = await request('/api/customs-sale-excel/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: file.name, fileSize: file.size, shipmentId }) });
+    const chunkSize = started.chunkSize || 768 * 1024;
+    for (let offset = 0, index = 0; offset < file.size; offset += chunkSize, index += 1) {
+      const end = Math.min(offset + chunkSize, file.size);
+      await request(`/api/customs-sale-excel/chunk?id=${encodeURIComponent(started.uploadId)}&index=${index}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file.slice(offset, end) });
+      onProgress?.(Math.round(end / file.size * 100));
     }
-    if (!lines.length) throw new Error('Không tìm thấy dòng sản phẩm hợp lệ trong file Excel.');
-    return { lines, sheetName: sheet.name, imageCount: typeof sheet.getImages === 'function' ? sheet.getImages().length : 0 };
+    return request('/api/customs-sale-excel/finish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uploadId: started.uploadId }) });
   }
   function showExcelPreview() {
     const modal = workspace.querySelector('#xp-excel-modal');
     workspace.querySelector('#xp-excel-file-name').textContent = excelState.fileName;
-    workspace.querySelector('#xp-excel-summary').textContent = `${excelState.lines.length} dòng sẽ được nhập${excelState.imageCount ? ` · File có ${excelState.imageCount} ảnh (ảnh chưa tự tải lên)` : ''}.`;
+    workspace.querySelector('#xp-excel-summary').textContent = `${excelState.lines.length} dòng sẽ được nhập · Ảnh trong file được bỏ qua theo cấu hình.`;
     workspace.querySelector('#xp-excel-preview-body').innerHTML = excelState.lines.map((line, index) => `<tr><td>${index + 1}</td><td>${esc(line.model)}</td><td>${esc(line.name)}</td><td>${esc(line.description)}</td><td>${esc(line.size)}</td><td>${esc(line.qty)}</td><td>${esc(line.unit)}</td><td>${esc(line.price)}</td></tr>`).join('');
     modal.hidden = false;
   }
@@ -330,8 +303,13 @@
   });
   workspace.querySelector('#xp-excel-file').addEventListener('change', async event => {
     const file = event.target.files?.[0]; if (!file) return;
-    try { const result = await readSaleExcel(file); excelState.lines = result.lines; excelState.fileName = `${file.name} · Sheet: ${result.sheetName}`; excelState.imageCount = result.imageCount; showExcelPreview(); }
-    catch (error) { alert(error.message || 'Không thể đọc file Excel.'); }
+    const button = excelState.card?.querySelector('.xp-sale-import'), originalText = button?.textContent;
+    try {
+      if (button) { button.disabled = true; button.textContent = 'Đang tải 0%…'; }
+      const result = await readSaleExcel(file, percent => { if (button) button.textContent = percent < 100 ? `Đang tải ${percent}%…` : 'Đang đọc dữ liệu…'; });
+      excelState.lines = result.lines; excelState.fileName = `${file.name} · Sheet: ${result.sheetName}`; excelState.imagesSkipped = result.imagesSkipped !== false; showExcelPreview();
+    } catch (error) { alert(error.message || 'Không thể đọc file Excel.'); }
+    finally { if (button) { button.disabled = false; button.textContent = originalText || '↑ Nhập file Excel'; } }
   });
   workspace.querySelectorAll('.xp-excel-close').forEach(button => button.addEventListener('click', () => { workspace.querySelector('#xp-excel-modal').hidden = true; }));
   workspace.querySelector('#xp-excel-apply').addEventListener('click', applyExcelLines);
