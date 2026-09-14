@@ -40,6 +40,10 @@ assert.match(serverSource, /function isCustomsOnlyUser\(user\).*customs_declarat
 assert.match(serverSource, /isCustomsOnlyUser\(user\).*Location: '\/customs-coordination\.html'/, 'Tài khoản giới hạn phải được chuyển thẳng vào Khai Báo HQ');
 assert.match(serverSource, /duplicateCodes: existingCodes/, 'Máy chủ phải từ chối mã hàng đã tồn tại');
 assert.match(warehouseImport, /Mã đã có trên hệ thống/, 'Trang nhập kho phải cảnh báo mã hàng đã tồn tại');
+assert.match(truckWorkspace, /cn_operations/, 'Điều vận Trang phải được thao tác Xếp Xe CN');
+assert.match(fs.readFileSync('public/modules/ktt-customs/processing-workspace.js', 'utf8'), /xp-sale-import[\s\S]*xp-add-sale-line[\s\S]*xp-add-customs-line/, 'Xử lý khai báo phải có nhập Excel và nút thêm dòng cho Sale, Khai báo HQ');
+assert.match(serverSource, /productLines\.slice\(0, 300\)/, 'List Sale phải hỗ trợ lô hàng tới 300 dòng');
+assert.match(serverSource, /customsLines\.slice\(0, 300\)/, 'List Khai báo HQ phải hỗ trợ lô hàng tới 300 dòng');
 history.push({ actorRole: 'sale', action: 'sale_submit' });
 assert.equal(history.length, 1, 'Mọi thao tác phải thêm lịch sử');
 const reference = JSON.parse(fs.readFileSync('customs-declared-goods.json', 'utf8'));

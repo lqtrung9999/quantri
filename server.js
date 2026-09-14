@@ -964,7 +964,7 @@ http.createServer(async (req, res) => {
         const draft = action === 'save_sale_draft';
         if (!draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã gửi và đang bị khóa. Hãy tạo yêu cầu sửa đổi.' });
         if (draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã khóa, không thể lưu nháp.' });
-        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 80).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 3000), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 2000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
+        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 3000), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 2000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
         if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
         const before = { saleProductLines: shipment.saleProductLines };
         const from = shipment.status; shipment.saleProductLines = productLines;
@@ -982,7 +982,7 @@ http.createServer(async (req, res) => {
         if (!canCustoms) return send(res, 403, { error: 'Chỉ bộ phận Khai báo hải quan được lên list khai báo.' });
         const draft = action === 'save_customs_draft';
         if (shipment.status !== 'customs_pending') return send(res, 409, { error: 'List khai báo chưa đến lượt xử lý hoặc đã gửi và đang bị khóa.' });
-        const lines = Array.isArray(record?.customsLines) ? record.customsLines.slice(0, 80).map(cleanCustomsLine).filter(line => line.goodsDescription || line.hsCode) : [];
+        const lines = Array.isArray(record?.customsLines) ? record.customsLines.slice(0, 300).map(cleanCustomsLine).filter(line => line.goodsDescription || line.hsCode) : [];
         if (!lines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng khai báo.' });
         const before = { customsLines: shipment.customsLines };
         const from = shipment.status; shipment.customsLines = lines;
@@ -1064,6 +1064,10 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
+  if (pathname === '/vendor/exceljs.min.js') {
+    if (!user) return send(res, 401, 'Vui lòng đăng nhập.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(__dirname, 'node_modules', 'exceljs', 'dist', 'exceljs.min.js'), (error, content) => error ? send(res, 404, 'Không thể tải bộ đọc Excel.', 'text/plain; charset=utf-8') : send(res, 200, content, 'application/javascript; charset=utf-8'));
+  }
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (isCustomsOnlyUser(user)) { res.writeHead(302, { Location: '/customs-coordination.html' }); return res.end(); }

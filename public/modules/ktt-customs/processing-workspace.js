@@ -43,7 +43,9 @@
   workspace.innerHTML = `
     <div class="xp-head"><div><h1>Xử Lý Khai Báo</h1><p>Nhập liệu Sale và Khai báo trên cùng một bảng. Các cột nhận diện được giữ cố định khi cuộn ngang.</p></div><button id="xp-back" class="cf-action">← Danh sách công việc</button></div><div class="xp-rate"></div><div class="xp-kpis"></div>
     <div class="xp-tools"><div class="xp-search"><span>⌕</span><input id="xp-search" placeholder="Tìm mã hàng, mã khách, tên hàng, Sale..."></div><select id="xp-status"><option value="">Mọi trạng thái</option><option value="sale_required">Chờ Sale bổ sung</option><option value="customs_pending">Chờ Khai báo lên list</option><option value="customer_confirmation">Chờ xác nhận</option><option value="ready_for_loading">Sẵn sàng xếp xe</option></select><button id="xp-refresh" class="cf-action">↻ Cập nhật</button></div>
-    <div id="xp-summary" class="xp-summary"></div><div id="xp-list" class="xp-list"></div>`;
+    <div id="xp-summary" class="xp-summary"></div><div id="xp-list" class="xp-list"></div>
+    <input id="xp-excel-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+    <div id="xp-excel-modal" class="xp-excel-modal" hidden><div class="xp-excel-dialog"><div class="xp-excel-head"><div><h2>Kiểm tra dữ liệu Excel</h2><p id="xp-excel-file-name"></p></div><button type="button" class="xp-excel-close">×</button></div><div class="xp-excel-options"><label>Cách nhập<select id="xp-excel-mode"><option value="replace">Thay danh sách Sale hiện tại</option><option value="append">Thêm vào cuối danh sách hiện tại</option></select></label><label>Đơn vị giá trong file<select id="xp-excel-currency"><option value="none">Không nhập giá</option><option value="vnd">VNĐ</option><option value="usd">USD – quy đổi theo tỉ giá hôm nay</option></select></label></div><div id="xp-excel-summary" class="xp-excel-summary"></div><div class="xp-excel-preview"><table><thead><tr><th>#</th><th>Mã/Model</th><th>Tên hàng</th><th>Công dụng – chất liệu</th><th>Kích thước</th><th>Số lượng</th><th>Đơn vị</th><th>Giá file</th></tr></thead><tbody id="xp-excel-preview-body"></tbody></table></div><div class="xp-excel-foot"><span>Dữ liệu chỉ được đưa vào biểu mẫu. Sale vẫn cần kiểm tra và bấm Lưu nháp hoặc Lưu và gửi Khai báo.</span><div><button type="button" class="cf-action xp-excel-close">Hủy</button><button type="button" class="cf-action primary" id="xp-excel-apply">Đưa dữ liệu vào list Sale</button></div></div></div></div>`;
   main.appendChild(workspace);
 
   const navButtons = [...root.querySelectorAll('.cf-nav button')];
@@ -99,8 +101,8 @@
       </tbody></table></div>
       ${customsEditable ? '<div class="xp-supplement-box" hidden><label>Thông tin Sale cần bổ sung</label><textarea class="xp-supplement-note" placeholder="VD: Dòng 1 máy chưa có công suất; chưa có tên nhà sản xuất; cần bổ sung ảnh tem sản phẩm..."></textarea><div><button class="cf-action primary xp-request-supplement">Gửi yêu cầu và trả về Sale</button></div></div>' : ''}
       <div class="xp-actions"><span>${saleEditable ? 'Sale đang được nhập liệu' : customsEditable ? 'Khai báo đang được nhập liệu' : 'Dữ liệu chỉ đọc ở trạng thái hiện tại'}</span><div>
-      ${saleEditable ? '<button class="cf-action xp-sale-draft">Lưu nháp Sale</button><button class="cf-action primary xp-sale-submit">Lưu và gửi Khai báo</button>' : ''}
-      ${customsEditable ? '<button class="cf-action xp-show-supplement">↩ Yêu cầu Sale bổ sung</button><button class="cf-action xp-customs-draft">Lưu nháp List khai báo</button><button class="cf-action primary xp-customs-submit">Lưu và báo Khai báo xác nhận</button>' : ''}
+      ${saleEditable ? '<button class="cf-action xp-sale-import">↑ Nhập file Excel</button><button class="cf-action xp-add-sale-line">＋ Thêm dòng Sale</button><button class="cf-action xp-sale-draft">Lưu nháp Sale</button><button class="cf-action primary xp-sale-submit">Lưu và gửi Khai báo</button>' : ''}
+      ${customsEditable ? '<button class="cf-action xp-show-supplement">↩ Yêu cầu Sale bổ sung</button><button class="cf-action xp-add-customs-line">＋ Thêm dòng khai báo</button><button class="cf-action xp-customs-draft">Lưu nháp List khai báo</button><button class="cf-action primary xp-customs-submit">Lưu và báo Khai báo xác nhận</button>' : ''}
       ${roleCanCustoms(user) && item._status === 'customer_confirmation' ? '<button class="cf-action xp-customer-edit">Khách yêu cầu chỉnh sửa</button><button class="cf-action primary xp-customer-approve">Xác nhận khách → Sẵn sàng xếp xe</button>' : ''}
       </div></div></article>`;
   }
@@ -168,6 +170,95 @@
   function customsPayload(card) {
     return collect(card, 'customs', customsFields).map(line => ({ englishName: line.en, goodsDescription: line.vi, note: line.note, invoicePriceBeforeTax: line.invoicePrice, hsCode: line.hs, quantity1: line.qty1, unit1: line.unit1, declaredPriceUsd: line.price, importTaxRate: line.importRate, importTaxAmount: line.importTax, vatRate: line.vatRate, vatTaxAmount: line.vatTax, totalTaxVnd: line.totalTax }));
   }
+  function appendEmptyLine(card) {
+    const body = card.querySelector('.xp-table tbody'), source = body?.querySelector('tr:last-child');
+    if (!body || !source) return null;
+    const row = source.cloneNode(true), index = body.querySelectorAll('tr').length;
+    row.querySelectorAll('[data-sale-field], [data-customs-field]').forEach(control => {
+      control.dataset.row = index;
+      if (control.tagName === 'SELECT') control.value = 'Cái'; else control.value = '';
+      control.disabled = control.hasAttribute('data-sale-field') ? !roleCanSale(session().user) || card.querySelector('.xp-badge')?.classList.contains('customs_pending') : !roleCanCustoms(session().user) || !card.querySelector('.xp-badge')?.classList.contains('customs_pending') || ['price', 'amount', 'importTax', 'vatTax', 'totalTax'].includes(control.dataset.customsField);
+    });
+    row.querySelector('.pin.code small').textContent = `Dòng ${index + 1}`;
+    row.querySelectorAll('.xp-match-warning').forEach(box => { box.classList.remove('show'); box.innerHTML = ''; delete box.dataset.dismissed; });
+    body.appendChild(row); workspace.dataset.dirty = '1';
+    const count = card.querySelectorAll('.xp-table tbody tr').length; const label = card.querySelector('.xp-card-head small'); if (label) label.textContent = `${count} dòng`;
+    return row;
+  }
+  function clearCardRows(card) {
+    const body = card.querySelector('.xp-table tbody'), all = [...(body?.querySelectorAll('tr') || [])];
+    all.slice(1).forEach(row => row.remove());
+    all[0]?.querySelectorAll('[data-sale-field], [data-customs-field]').forEach(control => { if (control.tagName === 'SELECT') control.value = 'Cái'; else control.value = ''; });
+  }
+  const excelState = { card: null, lines: [], fileName: '', imageCount: 0 };
+  function excelValue(row, column) {
+    const value = row.getCell(column)?.value;
+    if (value == null) return '';
+    if (typeof value !== 'object') return String(value).trim();
+    if (Array.isArray(value.richText)) return value.richText.map(part => part.text || '').join('').trim();
+    if (value.result != null) return String(value.result).trim();
+    if (value.text != null) return String(value.text).trim();
+    return '';
+  }
+  async function ensureExcelReader() {
+    if (window.ExcelJS) return;
+    await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/vendor/exceljs.min.js'; script.onload = resolve; script.onerror = () => reject(new Error('Không tải được bộ đọc Excel.')); document.head.appendChild(script); });
+  }
+  async function readSaleExcel(file) {
+    if (!file || file.size > 20 * 1024 * 1024) throw new Error('File Excel phải nhỏ hơn 20 MB.');
+    await ensureExcelReader();
+    const workbook = new window.ExcelJS.Workbook(); await workbook.xlsx.load(await file.arrayBuffer());
+    const sheet = workbook.worksheets[0]; if (!sheet) throw new Error('File Excel không có sheet dữ liệu.');
+    let headerRow = 0;
+    for (let rowNumber = 1; rowNumber <= Math.min(20, sheet.rowCount); rowNumber += 1) {
+      const text = Array.from({ length: Math.min(30, sheet.columnCount) }, (_, index) => excelValue(sheet.getRow(rowNumber), index + 1)).join(' ').toLocaleLowerCase('vi-VN');
+      if (/tên hàng|tên sản phẩm|tên hàng cần khai/.test(text) && /số lượng|sl khai/.test(text)) { headerRow = rowNumber; break; }
+    }
+    if (!headerRow) throw new Error('Không tìm thấy dòng tiêu đề Tên hàng và Số lượng trong file.');
+    const headerTexts = Array.from({ length: sheet.columnCount }, (_, index) => `${excelValue(sheet.getRow(headerRow), index + 1)} ${excelValue(sheet.getRow(headerRow + 1), index + 1)}`.toLocaleLowerCase('vi-VN'));
+    const findColumn = patterns => { const index = headerTexts.findIndex(text => patterns.some(pattern => pattern.test(text))); return index < 0 ? 0 : index + 1; };
+    const columns = {
+      model: findColumn([/^mã hàng/, /model/, /mã sản phẩm/]), brand: findColumn([/hãng hàng/, /nhãn hiệu/]), name: findColumn([/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/]),
+      usage: findColumn([/công dụng/]), material: findColumn([/chất liệu/]), weight: findColumn([/trọng lượng/]), size: findColumn([/kích thước/]), specs: findColumn([/công suất/, /điện áp/]),
+      quantity: findColumn([/số lượng khai báo/, /sl khai/]), unit: findColumn([/đơn vị khai báo/, /^đvt/]), price: findColumn([/giá sản phẩm/, /giá hđ/, /đơn giá/]), note: findColumn([/ghi chú/, /note/])
+    };
+    if (headerTexts.some(text => /tên hàng cần khai/.test(text)) && sheet.columnCount >= 15) Object.assign(columns, { model: columns.model || 1, brand: columns.brand || 4, name: columns.name || 5, usage: columns.usage || 6, material: columns.material || 7, weight: columns.weight || 8, size: columns.size || 9, specs: columns.specs || 10, quantity: columns.quantity || 11, unit: columns.unit || 12, price: columns.price || 13, note: columns.note || 15 });
+    if (!columns.name || !columns.quantity) throw new Error('File phải có cột Tên hàng và Số lượng khai báo.');
+    const lines = [];
+    for (let rowNumber = headerRow + 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
+      const row = sheet.getRow(rowNumber), name = excelValue(row, columns.name), quantity = excelValue(row, columns.quantity);
+      if (!name && !quantity) continue;
+      if (!name || !quantity || /tổng cộng|total|tên hàng|tên sản phẩm/i.test(name) || /số lượng|quantity/i.test(quantity)) continue;
+      const read = key => columns[key] ? excelValue(row, columns[key]) : '';
+      const details = [[read('name'), ''], [read('usage'), 'Công dụng'], [read('material'), 'Chất liệu'], [read('brand'), 'Nhãn hiệu'], [read('model'), 'Model'], [read('weight'), 'Trọng lượng'], [read('specs'), 'Thông số']].filter(([value]) => value).map(([value, label]) => label ? `${label}: ${value}` : value);
+      lines.push({ sourceRow: rowNumber, model: read('model'), name, description: details.join('. '), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note') });
+      if (lines.length >= 300) break;
+    }
+    if (!lines.length) throw new Error('Không tìm thấy dòng sản phẩm hợp lệ trong file Excel.');
+    return { lines, sheetName: sheet.name, imageCount: typeof sheet.getImages === 'function' ? sheet.getImages().length : 0 };
+  }
+  function showExcelPreview() {
+    const modal = workspace.querySelector('#xp-excel-modal');
+    workspace.querySelector('#xp-excel-file-name').textContent = excelState.fileName;
+    workspace.querySelector('#xp-excel-summary').textContent = `${excelState.lines.length} dòng sẽ được nhập${excelState.imageCount ? ` · File có ${excelState.imageCount} ảnh (ảnh chưa tự tải lên)` : ''}.`;
+    workspace.querySelector('#xp-excel-preview-body').innerHTML = excelState.lines.map((line, index) => `<tr><td>${index + 1}</td><td>${esc(line.model)}</td><td>${esc(line.name)}</td><td>${esc(line.description)}</td><td>${esc(line.size)}</td><td>${esc(line.qty)}</td><td>${esc(line.unit)}</td><td>${esc(line.price)}</td></tr>`).join('');
+    modal.hidden = false;
+  }
+  function applyExcelLines() {
+    const card = excelState.card; if (!card || !excelState.lines.length) return;
+    const mode = workspace.querySelector('#xp-excel-mode').value, currency = workspace.querySelector('#xp-excel-currency').value, rate = n(session().settings?.exchangeRateUsdVnd);
+    if (currency === 'usd' && !rate) { alert('Chưa có tỉ giá USD/VND hôm nay. Vui lòng nhờ bộ phận Khai báo cập nhật tỉ giá trước.'); return; }
+    if (mode === 'replace') clearCardRows(card);
+    let start = mode === 'append' ? card.querySelectorAll('.xp-table tbody tr').length : 0;
+    while (card.querySelectorAll('.xp-table tbody tr').length < start + excelState.lines.length) appendEmptyLine(card);
+    excelState.lines.forEach((line, offset) => {
+      const index = start + offset, set = (field, value) => { const control = card.querySelector(`[data-sale-field="${field}"][data-row="${index}"]`); if (!control) return; const text = value == null ? '' : String(value); if (control.tagName === 'SELECT') { const option = [...control.options].find(item => item.value.toLocaleLowerCase('vi-VN') === text.toLocaleLowerCase('vi-VN')); if (option) control.value = option.value; else { const custom = document.createElement('option'); custom.value = text; custom.textContent = text; control.insertBefore(custom, control.lastElementChild); control.value = text; } } else control.value = text; };
+      set('description', line.description); set('size', line.size); set('qty', fmt(line.qty)); set('unit', line.unit); set('note', line.note);
+      const price = n(line.price); set('invoicePrice', currency === 'vnd' ? fmt(price) : currency === 'usd' ? fmt(price * rate) : '');
+    });
+    workspace.dataset.dirty = '1'; calculate(card); card.querySelectorAll('textarea.long-text').forEach(centerLongTextarea);
+    workspace.querySelector('#xp-excel-modal').hidden = true; alert(`Đã đưa ${excelState.lines.length} dòng vào Thông tin Sale. Vui lòng kiểm tra các ô còn thiếu trước khi lưu.`);
+  }
   function canvasLines(context, value, width, limit = 5) {
     const words = String(value || '—').split(/\s+/), lines = []; let current = '';
     words.forEach(word => { const next = current ? `${current} ${word}` : word; if (current && context.measureText(next).width > width) { if (lines.length < limit) lines.push(current); current = word; } else current = next; });
@@ -222,6 +313,8 @@
     const kpi = event.target.closest('[data-kpi-status]');
     if (kpi) { workspace.querySelector('#xp-status').value = kpi.dataset.kpiStatus; render(); return; }
     const card = event.target.closest('.xp-card'); if (!card) return;
+    if (event.target.closest('.xp-add-sale-line') || event.target.closest('.xp-add-customs-line')) { const row = appendEmptyLine(card); row?.querySelector(event.target.closest('.xp-add-sale-line') ? '[data-sale-field="description"]' : '[data-customs-field="en"]')?.focus(); return; }
+    if (event.target.closest('.xp-sale-import')) { const fileInput = workspace.querySelector('#xp-excel-file'); excelState.card = card; fileInput.value = ''; fileInput.click(); return; }
     const showSupplement = event.target.closest('.xp-show-supplement');
     if (showSupplement) { const box = card.querySelector('.xp-supplement-box'); if (box) { box.hidden = false; showSupplement.hidden = true; box.querySelector('.xp-supplement-note')?.focus(); } return; }
     const copyHs = event.target.closest('[data-copy-hs]');
@@ -235,6 +328,14 @@
     if (event.target.closest('.xp-customer-approve')) save(card, 'customer_approved', {}, 'Đã xác nhận khách và chuyển sang Sẵn sàng xếp xe.');
     if (event.target.closest('.xp-customer-edit')) { const note = card.querySelector('.xp-customer-note'); const reason = note?.value.trim(); if (!reason) { alert('Vui lòng nhập nội dung khách yêu cầu chỉnh sửa.'); note?.focus(); return; } save(card, 'customer_requests_edit', { content: reason }, 'Đã lưu nội dung yêu cầu và trả hồ sơ về List khai báo để chỉnh sửa.'); }
   });
+  workspace.querySelector('#xp-excel-file').addEventListener('change', async event => {
+    const file = event.target.files?.[0]; if (!file) return;
+    try { const result = await readSaleExcel(file); excelState.lines = result.lines; excelState.fileName = `${file.name} · Sheet: ${result.sheetName}`; excelState.imageCount = result.imageCount; showExcelPreview(); }
+    catch (error) { alert(error.message || 'Không thể đọc file Excel.'); }
+  });
+  workspace.querySelectorAll('.xp-excel-close').forEach(button => button.addEventListener('click', () => { workspace.querySelector('#xp-excel-modal').hidden = true; }));
+  workspace.querySelector('#xp-excel-apply').addEventListener('click', applyExcelLines);
+  workspace.querySelector('#xp-excel-modal').addEventListener('click', event => { if (event.target.id === 'xp-excel-modal') event.currentTarget.hidden = true; });
   const warningTimers = new WeakMap();
   workspace.addEventListener('input', event => {
     const card = event.target.closest('.xp-card'); if (!card) return;
@@ -279,6 +380,7 @@
     .xp-confirm-title{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px}.xp-confirm-title>div{display:grid;gap:5px}.xp-confirm-title b{font-size:16px}.xp-confirm-title span{color:#66758d}.xp-confirm-wrap{margin:0 16px 5px;overflow:auto;border:1px solid #dce4ef;border-radius:9px}.xp-confirm-wrap table{border-collapse:collapse;min-width:1700px;width:100%;font-size:11px}.xp-confirm-wrap th{padding:10px 9px;background:#ddd1f5;color:#30294a;text-align:center;vertical-align:middle;white-space:normal;border-right:1px solid #bfb4dc}.xp-confirm-wrap td{padding:11px 9px;border-top:1px solid #dfe5ee;border-right:1px solid #e2e7ef;text-align:center;vertical-align:middle}.xp-confirm-wrap th:nth-child(3),.xp-confirm-wrap td:nth-child(3){min-width:330px;white-space:normal}.xp-confirm-card .xp-actions{border-top:1px solid #e3e9f2}
     .xp-customer-feedback{display:grid;gap:7px;margin:14px 16px;padding-top:12px;border-top:1px solid #e2e8f1}.xp-customer-feedback label{font-size:12px;font-weight:800;color:#354258}.xp-customer-feedback textarea{box-sizing:border-box;width:100%;min-height:86px;padding:11px;border:1px solid #cfd9e7;border-radius:8px;resize:vertical;font:12px/1.5 system-ui}.xp-return-note{display:grid;gap:5px;margin:11px 13px;padding:10px 12px;border:1px solid #f0b873;border-radius:8px;background:#fff6e8;color:#86450d}.xp-return-note b{font-size:11px}.xp-return-note span{font-size:12px;white-space:pre-wrap}
     .xp-supplement-box{display:grid;gap:8px;margin:13px;padding:13px;border:1px solid #efb46f;border-radius:10px;background:#fff9f1}.xp-supplement-box[hidden]{display:none!important}.xp-supplement-box label{font-size:12px;font-weight:800;color:#354258}.xp-supplement-box textarea{box-sizing:border-box;width:100%;min-height:86px;padding:11px;border:1px solid #cfd9e7;border-radius:8px;resize:vertical;font:12px/1.5 system-ui}.xp-supplement-box>div{display:flex;justify-content:flex-end}.xp-sale-note{border-color:#e9ae61;background:#fff8ed}
+    .xp-excel-modal{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:18px;background:#101827b8}.xp-excel-modal[hidden]{display:none!important}.xp-excel-dialog{display:flex;flex-direction:column;width:min(1180px,96vw);max-height:92vh;background:#fff;border-radius:15px;box-shadow:0 24px 70px #0008;overflow:hidden}.xp-excel-head,.xp-excel-foot{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:14px 18px}.xp-excel-head{border-bottom:1px solid #e0e6ef}.xp-excel-head h2{margin:0;font-size:19px}.xp-excel-head p{margin:4px 0 0;color:#68768c}.xp-excel-close{border:0;background:transparent;font-size:25px;cursor:pointer}.xp-excel-options{display:flex;gap:14px;padding:13px 18px;background:#f6f8fb}.xp-excel-options label{display:grid;gap:5px;font-weight:750;color:#445269}.xp-excel-options select{min-width:245px;height:36px;border:1px solid #cbd6e5;border-radius:7px;background:#fff;padding:0 8px}.xp-excel-summary{padding:10px 18px;color:#53647d;font-weight:700}.xp-excel-preview{margin:0 18px;overflow:auto;border:1px solid #dce4ef;border-radius:9px}.xp-excel-preview table{border-collapse:collapse;min-width:1100px;width:100%}.xp-excel-preview th{position:sticky;top:0;padding:9px;background:#e8f4d9;color:#2c4826;text-align:center}.xp-excel-preview td{padding:8px;border-top:1px solid #e2e8f1;border-right:1px solid #e8edf4;vertical-align:middle}.xp-excel-preview td:nth-child(4){min-width:360px;white-space:normal}.xp-excel-foot{border-top:1px solid #e0e6ef;margin-top:14px}.xp-excel-foot>div{display:flex;gap:8px}.xp-excel-foot span{color:#65738b}
     .xp-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 13px}.xp-kpis button{min-height:112px;padding:12px;border:1px solid #dce4ef;border-radius:12px;background:#fff;color:#172033;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer}.xp-kpis button:hover,.xp-kpis button:focus{border-color:#6d8fbd;box-shadow:0 0 0 2px #6d8fbd20}.xp-kpis span{font-size:12px;font-weight:850;color:#58677d}.xp-kpis b{margin:5px 0 3px;font-size:23px}.xp-kpis small{font-size:11px;font-weight:700;color:#748198}
     .xp-table th{text-align:center!important;vertical-align:middle!important;font-weight:800!important}.xp-table td{text-align:center!important;vertical-align:middle!important}.xp-table .pin.product{text-align:left!important;vertical-align:middle!important}.xp-table input,.xp-table textarea,.xp-table .xp-unit-select{height:80px!important;border:1px solid rgba(25,35,50,.32)!important;background:#fff!important;text-align:center;vertical-align:middle}.xp-table textarea.long-text{height:80px!important;min-height:80px!important;line-height:16px!important;overflow:auto}.xp-table textarea[data-sale-field="description"],.xp-table textarea[data-customs-field="en"],.xp-table textarea[data-customs-field="vi"],.xp-table input[data-sale-field="note"],.xp-table input[data-customs-field="note"]{text-align:left!important}.xp-table input:disabled,.xp-table textarea:disabled,.xp-table .xp-unit-select:disabled{background:#f0f3f7!important;color:#536178!important;border-color:rgba(25,35,50,.2)!important;opacity:1}.xp-table input:not(:disabled),.xp-table textarea:not(:disabled),.xp-table select:not(:disabled){background:#fff!important;color:#172033!important}
     #customs-flow-app .cf-kpis .cf-kpi{min-height:112px;display:flex!important;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer;padding:12px!important}#customs-flow-app .cf-kpis .cf-kpi span{font-size:12px!important;font-weight:850!important;color:light-dark(#526178,#d2dae6)!important}#customs-flow-app .cf-kpis .cf-kpi b{font-size:23px!important;margin:5px 0 3px!important}#customs-flow-app .cf-kpis .cf-kpi small{font-size:11px!important;font-weight:700!important}#customs-flow-app .cf-kpis .cf-kpi:hover,#customs-flow-app .cf-kpis .cf-kpi.ktt-active{border-color:#5b82ba!important;box-shadow:0 0 0 2px #5b82ba24}
