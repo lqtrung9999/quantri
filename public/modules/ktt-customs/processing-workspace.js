@@ -80,7 +80,7 @@
   function input(field, value, editable, scope, rowIndex) {
     const longText = field === 'description' || field === 'en' || field === 'vi';
     const longTextClass = field === 'description' ? 'sale-text' : field === 'en' ? 'english-text' : 'declaration-text';
-    if (longText) return `<textarea class="long-text ${longTextClass}" rows="3" data-${scope}-field="${field}" data-row="${rowIndex}" ${editable ? '' : 'disabled'}>${esc(value)}</textarea>${field === 'vi' ? `<div class="xp-match-warning" data-match-row="${rowIndex}"></div>` : ''}`;
+    if (longText) return `<textarea class="long-text ${longTextClass}" rows="3" data-${scope}-field="${field}" data-row="${rowIndex}" ${(field === 'description' || field === 'vi') ? 'maxlength="200"' : ''} ${editable ? '' : 'disabled'}>${esc(value)}</textarea>${field === 'vi' ? `<div class="xp-match-warning" data-match-row="${rowIndex}"></div>` : ''}`;
     if (field === 'unit' || field === 'unit1') return unitSelect(field, value, editable, scope, rowIndex);
     return `<input data-${scope}-field="${field}" data-row="${rowIndex}" value="${esc(numericFields.has(field) ? fmt(value) : value)}" ${editable ? '' : 'disabled'}>`;
   }

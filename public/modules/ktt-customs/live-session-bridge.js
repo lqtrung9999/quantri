@@ -314,6 +314,10 @@
       userBox.dataset.kttSessionUser = sessionKey;
       userBox.querySelector('#cf-logout')?.addEventListener('click', () => window.top.postMessage({ type: 'ktt-customs-logout' }, '*'));
     }
+    document.querySelectorAll('[data-sale-field="description"], [data-field="description"], [data-customs-field="vi"], [data-custom-field="vi"]').forEach(field => {
+      field.maxLength = 200;
+      if (field.value.length > 200) field.value = field.value.slice(0, 200);
+    });
 
     // All permitted users can see every workflow tab and every status.  Editing
     // is limited by role; the API repeats the same checks on the server.

@@ -60,6 +60,9 @@ assert.match(serverSource, /filter\(row => row\.status !== 'returned_to_customer
 assert.match(warehouseWorkspace, /Nhập dữ liệu mới[\s\S]*Trả lại khách hàng[\s\S]*Lưu sửa đổi/, 'Trang Nhập kho TQ phải có danh sách quản lý, nhập mới, chỉnh sửa và trả khách');
 assert.match(processingWorkspace, /customerVatTax = line => n\(line\.invoicePrice\) \* n\(line\.qty1\) \* n\(line\.vatRate\) \/ 100/, 'Bảng và ảnh xác nhận khách phải dùng VAT xuất hóa đơn theo Giá XHĐ × Số lượng × VAT %');
 assert.match(fs.readFileSync('public/modules/ktt-customs/live-session-bridge.js', 'utf8'), /customerTotalTax: number\(line\.importTax\) \+ customerVatTax/, 'Màn xác nhận khách cũ phải dùng cùng công thức tổng thuế mới');
+assert.match(processingWorkspace, /maxlength="200"/, 'Ô mô tả Sale và Khai báo HQ phải dừng nhập ở 200 ký tự');
+assert.match(serverSource, /goodsDescription \|\| ''\)\.trim\(\)\.slice\(0, 200\)/, 'Máy chủ phải giới hạn mô tả Khai báo HQ ở 200 ký tự');
+assert.match(serverSource, /line\?\.description \|\| ''\)\.trim\(\)\.slice\(0, 200\)/, 'Máy chủ phải giới hạn mô tả Sale ở 200 ký tự');
 assert.match(serverSource, /productLines\.slice\(0, 300\)/, 'List Sale phải hỗ trợ lô hàng tới 300 dòng');
 assert.match(serverSource, /customsLines\.slice\(0, 300\)/, 'List Khai báo HQ phải hỗ trợ lô hàng tới 300 dòng');
 history.push({ actorRole: 'sale', action: 'sale_submit' });
