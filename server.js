@@ -4,6 +4,7 @@ const http = require('http');
 const path = require('path');
 const ExcelJS = require('exceljs');
 const { buildCustomsWorkbook } = require('./customs-excel-export');
+const { createLarkReporter } = require('./crm-new-lark-report');
 
 const publicDir = path.join(__dirname, 'public');
 const usersFile = path.join(__dirname, 'users.json');
@@ -32,6 +33,11 @@ const saleExcelUploads = new Map();
 const saleExcelUploadDir = path.join(__dirname, 'logs', 'sale-excel-uploads');
 const saleExcelMaxBytes = 500 * 1024 * 1024;
 const saleExcelChunkBytes = 1024 * 1024;
+const crmLarkReporter = createLarkReporter({
+  directory: path.join(__dirname, 'crm-new-lark-private'),
+  readRows: crmNewRows,
+  readAccounts: () => users().map(account => ({ ...account, role: canonicalUserRole(account) }))
+});
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
@@ -785,6 +791,27 @@ http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     } catch { return send(res, 400, { error: 'Không thể đổi mật khẩu.' }); }
   }
+  if (pathname === '/api/crm-new/lark-report' || pathname === '/api/crm-new/lark-report/preview') {
+    if (!user || user.role !== 'admin') return send(res, user ? 403 : 401, { error: 'Chỉ Admin được cấu hình và gửi báo cáo Lark.' });
+    try {
+      if (req.method === 'GET') {
+        const date = new URL(req.url, 'https://dashboard.local').searchParams.get('date');
+        return send(res, 200, pathname.endsWith('/preview') ? crmLarkReporter.preview(date) : crmLarkReporter.status());
+      }
+      if (req.method !== 'POST' || pathname.endsWith('/preview')) return send(res, 405, { error: 'Phương thức không hỗ trợ.' });
+      const input = await readJson(req);
+      if (input.action === 'configure') return send(res, 200, crmLarkReporter.configure(input));
+      if (input.action === 'test') {
+        const result = await crmLarkReporter.testConnection();
+        return send(res, result.ok ? 200 : 502, result);
+      }
+      if (input.action === 'send') {
+        const result = crmLarkReporter.queue(input.date, input.retry === true);
+        return send(res, 202, result);
+      }
+      return send(res, 400, { error: 'Thao tác báo cáo Lark không hợp lệ.' });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể xử lý báo cáo Lark.' }); }
+  }
   if (pathname === '/api/crm-new/leads' && req.method === 'GET') {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     try {
@@ -1186,6 +1213,11 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể lưu dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/session') return user ? send(res, 200, { user: profile(user) }) : send(res, 401, { error: 'Chưa đăng nhập.' });
+  if (pathname === '/crm-new-lark.html') {
+    if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
+    if (user.role !== 'admin') return send(res, 403, 'Chỉ Admin được cấu hình báo cáo Lark.', 'text/plain; charset=utf-8');
+    return fs.readFile(path.join(publicDir, 'crm-new-lark.html'), (error, content) => error ? send(res, 500, 'Không thể tải cấu hình báo cáo Lark.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
+  }
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (isCustomsOnlyUser(user)) { res.writeHead(302, { Location: '/customs-coordination.html' }); return res.end(); }
@@ -1262,3 +1294,4 @@ http.createServer(async (req, res) => {
 }).listen(port, () => console.log(`Dashboard đang chạy tại http://localhost:${port}`));
 
 scheduleCrmNewBackup();
+crmLarkReporter.start();

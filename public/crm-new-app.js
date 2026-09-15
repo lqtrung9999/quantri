@@ -190,5 +190,11 @@
   $('#summary-day').onchange = $('#summary-month').onchange = renderSummaryReport;
   summaryReportModal.querySelector('.close').onclick = summaryReportModal.querySelector('.cancel').onclick = () => summaryReportModal.classList.remove('open');
   summaryReportModal.addEventListener('click', event => { if (event.target === summaryReportModal) summaryReportModal.classList.remove('open'); });
-  reload().then(() => { summaryReportButton.hidden = !(user.role === 'admin' || user.team); $('#summary-team-wrap').hidden = user.role !== 'admin'; }).catch(error => { $('#rows').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:42px;color:#d64f42">${esc(error.message)}</td></tr>`; });
+  reload().then(() => {
+    summaryReportButton.hidden = !(user.role === 'admin' || user.team); $('#summary-team-wrap').hidden = user.role !== 'admin';
+    if (user.role === 'admin') {
+      const larkLink = document.createElement('a'); larkLink.href = '/crm-new-lark.html'; larkLink.textContent = 'Báo cáo Lark';
+      larkLink.style.cssText = 'color:#2766e8;font-weight:700;white-space:nowrap'; $('.user').prepend(larkLink);
+    }
+  }).catch(error => { $('#rows').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:42px;color:#d64f42">${esc(error.message)}</td></tr>`; });
 })();

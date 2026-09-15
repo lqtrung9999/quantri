@@ -37,7 +37,12 @@ async function waitUntilReady() {
 
 (async () => {
   fs.copyFileSync(path.join(root, 'server.js'), path.join(fixture, 'server.js'));
+  for (const file of ['customs-excel-export.js', 'crm-new-lark-report.js']) fs.copyFileSync(path.join(root, file), path.join(fixture, file));
+  fs.symlinkSync(path.join(root, 'node_modules'), path.join(fixture, 'node_modules'), 'dir');
   fs.mkdirSync(path.join(fixture, 'public'));
+  if (process.env.CRM_TEST_BROWSER === '1') {
+    for (const file of ['login.html', 'crm-new.html', 'crm-new-app.js', 'crm-new-dashboard-link.js', 'crm-new-lark.html', 'crm-new-lark.js']) fs.copyFileSync(path.join(root, 'public', file), path.join(fixture, 'public', file));
+  }
   const accounts = [
     ['sale-p5', 'Sale P5', 'sale.p5', 'sale', 'P5 LAN'],
     ['sale-p8', 'Sale P8', 'sale.p8', 'sale', 'P8 HOA'],
@@ -50,6 +55,22 @@ async function waitUntilReady() {
   await waitUntilReady();
 
   const [saleP5, saleP8, managerP5, admin, accountant] = await Promise.all(['sale.p5', 'sale.p8', 'manager.p5', 'admin', 'accountant'].map(login));
+  const larkPath = '/api/crm-new/lark-report';
+  assert.equal((await request(larkPath)).response.status, 401);
+  for (const cookie of [saleP5, managerP5, accountant]) {
+    for (const action of ['configure', 'test', 'send']) {
+      assert.equal((await request(larkPath, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action, enabled: true }) })).response.status, 403);
+    }
+    assert.equal((await request(`${larkPath}/preview`, { headers: { Cookie: cookie } })).response.status, 403);
+  }
+  const configured = await request(larkPath, { method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'configure', webhookUrl: 'https://open.larksuite.com/open-apis/bot/v2/hook/12345678-1234-1234-1234-123456789abc', signingSecret: 'test-private-signing-secret', time: '17:30', enabled: false }) });
+  assert.equal(configured.response.status, 200);
+  assert.equal(configured.body.configured, true);
+  assert.equal(configured.body.signed, true);
+  assert.ok(!JSON.stringify(configured.body).includes('12345678-1234'));
+  assert.ok(!JSON.stringify(configured.body).includes('test-private-signing-secret'));
+  assert.equal((await request(`${larkPath}/preview?date=2026-09-15`, { headers: { Cookie: admin } })).response.status, 200);
+  assert.equal((await request(`${larkPath}/preview?date=not-a-date`, { headers: { Cookie: admin } })).response.status, 400);
   const createPayload = { action: 'create', record: { requestId: 'browser-request-001', name: 'Khách A', phone: '0901', source: 'Facebook', product: 'Vải', link: 'https://example.com', note: 'Ghi chú đầu' } };
   const created = await crm(saleP5, 'POST', createPayload);
   assert.equal(created.response.status, 201);
@@ -86,10 +107,10 @@ async function waitUntilReady() {
   assert.equal((await crm(admin)).body.rows.length, 1, 'Admin được xem toàn bộ');
   assert.equal((await crm(accountant)).body.rows.length, 1, 'Kế toán được xem toàn bộ');
   assert.equal((await crm(admin, 'POST', { action: 'update', record: { id, phone: '0999' } })).response.status, 403, 'Admin không sửa dữ liệu sale');
-  console.log('CRM Mới: 23 kiểm tra API, phản hồi ghi chú, chống trùng và phân quyền đã đạt.');
+  console.log('CRM Mới: đạt kiểm thử API hồ sơ, phản hồi, chống trùng và phân quyền báo cáo Lark.');
   if (process.env.CRM_TEST_BROWSER === '1') {
     console.log(`Giữ máy chủ kiểm thử tại http://127.0.0.1:${port}`);
-    await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+    await new Promise(resolve => { const timer = setTimeout(resolve, 5 * 60 * 1000); process.once('SIGINT', () => { clearTimeout(timer); resolve(); }); });
   }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   if (server) server.kill('SIGTERM');

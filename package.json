@@ -7,6 +7,7 @@
     "start": "node server.js",
     "add-user": "node create-user.js",
     "test:crm-new": "node test-crm-new.js",
+    "test:crm-lark": "node --test test-crm-new-lark-report.js",
     "test:customs": "node test-customs-coordination.js"
   },
   "dependencies": {
