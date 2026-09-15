@@ -20,6 +20,9 @@ const vatTax = (importTax + taxableVnd) * vatRate / 100;
 assert.equal(importTax, 250000, 'Thuế NK phải theo số lượng × giá khai × tỉ giá × % thuế NK');
 assert.equal(vatTax, 420000, 'Thuế VAT phải tính trên trị giá tính thuế cộng Thuế NK');
 assert.equal(importTax + vatTax, 670000, 'Tổng thuế phải bằng Thuế NK cộng Thuế VAT');
+const customerVatTax = 140000 * 1000 * 8 / 100;
+assert.equal(customerVatTax, 11200000, 'VAT xác nhận khách phải bằng Giá XHĐ trước thuế × Số lượng khai báo × VAT %');
+assert.equal(importTax + customerVatTax, 11450000, 'Tổng thuế xác nhận khách phải bằng Thuế NK cộng VAT xuất hóa đơn cho khách');
 assert.equal(line.goodsDescription.length, 30, 'Đếm ký tự mô tả phải chính xác');
 assert.equal(transition('sale_required', 'sale_submit'), 'customs_pending');
 assert.equal(transition('customs_pending', 'request_supplement'), 'sale_required');
@@ -55,6 +58,8 @@ assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/,
 assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');
 assert.match(serverSource, /filter\(row => row\.status !== 'returned_to_customer'\)/, 'Mã trả khách phải được loại khỏi luồng xử lý chung');
 assert.match(warehouseWorkspace, /Nhập dữ liệu mới[\s\S]*Trả lại khách hàng[\s\S]*Lưu sửa đổi/, 'Trang Nhập kho TQ phải có danh sách quản lý, nhập mới, chỉnh sửa và trả khách');
+assert.match(processingWorkspace, /customerVatTax = line => n\(line\.invoicePrice\) \* n\(line\.qty1\) \* n\(line\.vatRate\) \/ 100/, 'Bảng và ảnh xác nhận khách phải dùng VAT xuất hóa đơn theo Giá XHĐ × Số lượng × VAT %');
+assert.match(fs.readFileSync('public/modules/ktt-customs/live-session-bridge.js', 'utf8'), /customerTotalTax: number\(line\.importTax\) \+ customerVatTax/, 'Màn xác nhận khách cũ phải dùng cùng công thức tổng thuế mới');
 assert.match(serverSource, /productLines\.slice\(0, 300\)/, 'List Sale phải hỗ trợ lô hàng tới 300 dòng');
 assert.match(serverSource, /customsLines\.slice\(0, 300\)/, 'List Khai báo HQ phải hỗ trợ lô hàng tới 300 dòng');
 history.push({ actorRole: 'sale', action: 'sale_submit' });

@@ -30,11 +30,13 @@
     ['price', 'Giá khai USD (tự tính)', 'readonly'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
     ['importTax', 'Thuế NK', 'readonly'], ['vatRate', 'VAT %', 'number'], ['vatTax', 'Thuế VAT', 'readonly'], ['totalTax', 'Tổng thuế VNĐ', 'readonly']
   ];
+  const customerVatTax = line => n(line.invoicePrice) * n(line.qty1) * n(line.vatRate) / 100;
+  const customerTotalTax = line => n(line.importTax) + customerVatTax(line);
   const confirmationFields = [
     ['Mã hàng', (item) => item.code], ['STT', (_, line, index) => index + 1], ['Mô tả hàng hóa', (_, line) => line.vi],
     ['Giá XHĐ trước thuế', (_, line) => fmt(line.invoicePrice)], ['Số lượng khai báo', (_, line) => fmt(line.qty1)],
     ['Đơn vị khai báo', (_, line) => line.unit1], ['Thuế NK %', (_, line) => fmt(line.importRate)], ['Thuế NK', (_, line) => fmt(line.importTax)],
-    ['VAT (%)', (_, line) => fmt(line.vatRate)], ['Thuế VAT', (_, line) => fmt(line.vatTax)], ['Tổng thuế (VNĐ)', (_, line) => fmt(line.totalTax)]
+    ['VAT (%)', (_, line) => fmt(line.vatRate)], ['Thuế VAT', (_, line) => fmt(customerVatTax(line))], ['Tổng thuế (VNĐ)', (_, line) => fmt(customerTotalTax(line))]
   ];
 
   const workspace = document.createElement('section');

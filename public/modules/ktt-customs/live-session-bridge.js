@@ -199,8 +199,8 @@
     ['Thuế NK %', row => row.importRate],
     ['Thuế NK', row => row.importTax],
     ['VAT (%)', row => row.vatRate],
-    ['Thuế VAT', row => row.vatTax],
-    ['Tổng thuế (VNĐ)', row => row.totalTax]
+    ['Thuế VAT', row => row.customerVatTax],
+    ['Tổng thuế (VNĐ)', row => row.customerTotalTax]
   ];
   const displayValue = value => {
     if (value === undefined || value === null || value === '') return '';
@@ -210,7 +210,11 @@
       : String(value);
   };
   function confirmationRows(shipment) {
-    return (shipment?.customsLines || []).map((line, index) => ({ ...line, code: shipment.code, index }));
+    return (shipment?.customsLines || []).map((line, index) => {
+      const number = value => Number(String(value ?? '').replace(/[,\s]/g, '')) || 0;
+      const customerVatTax = number(line.invoicePrice) * number(line.qty1) * number(line.vatRate) / 100;
+      return { ...line, code: shipment.code, index, customerVatTax, customerTotalTax: number(line.importTax) + customerVatTax };
+    });
   }
   // The handoff template contains extra internal customs fields.  Customers
   // receive this concise confirmation sheet, which is also the export source.
