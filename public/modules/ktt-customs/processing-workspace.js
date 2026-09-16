@@ -27,7 +27,7 @@
   const customsFields = [
     ['en', 'Tên tiếng Anh', 'text'], ['vi', 'Mô tả hàng hóa', 'text'], ['note', 'NOTE', 'text'],
     ['invoicePrice', 'Giá XHĐ trước thuế', 'text'], ['hs', 'Mã HS', 'text'], ['qty1', 'Số lượng khai báo', 'number'], ['unit1', 'Đơn vị khai báo', 'text'],
-    ['price', 'Giá khai USD (gợi ý, có thể sửa)', 'number'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
+    ['price', 'Giá khai USD', 'number'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
     ['importTax', 'Thuế NK', 'readonly'], ['vatRate', 'VAT %', 'number'], ['vatTax', 'Thuế VAT', 'readonly'], ['totalTax', 'Tổng thuế VNĐ', 'readonly']
   ];
   const customerVatTax = line => n(line.invoicePrice) * n(line.qty1) * n(line.vatRate) / 100;

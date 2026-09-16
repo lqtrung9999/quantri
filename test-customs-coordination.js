@@ -63,7 +63,7 @@ assert.match(fs.readFileSync('public/modules/ktt-customs/live-session-bridge.js'
 assert.match(processingWorkspace, /maxlength="200"/, 'Ô mô tả Sale và Khai báo HQ phải dừng nhập ở 200 ký tự');
 assert.match(serverSource, /goodsDescription \|\| ''\)\.trim\(\)\.slice\(0, 200\)/, 'Máy chủ phải giới hạn mô tả Khai báo HQ ở 200 ký tự');
 assert.match(serverSource, /line\?\.description \|\| ''\)\.trim\(\)\.slice\(0, 200\)/, 'Máy chủ phải giới hạn mô tả Sale ở 200 ký tự');
-assert.match(processingWorkspace, /Giá khai USD \(gợi ý, có thể sửa\)/, 'Giá khai USD phải hiển thị là gợi ý có thể sửa');
+assert.match(processingWorkspace, /\['price', 'Giá khai USD', 'number'\]/, 'Tiêu đề cột chỉ hiển thị Giá khai USD và trường vẫn có thể sửa');
 assert.match(processingWorkspace, /declaredPriceManual/, 'List khai báo phải gửi cờ xác nhận khi người dùng sửa giá khai USD');
 assert.doesNotMatch(processingWorkspace, /numericFields = new Set\(\[[^\]]*'invoicePrice'/, 'Giá HĐ trước VAT của Sale và Khai báo phải cho phép nhập văn bản');
 assert.match(serverSource, /declaredPriceManual \? numeric\(line\?\.declaredPriceUsd\) : suggestedPriceUsd/, 'Máy chủ phải giữ giá khai USD chỉnh tay thay vì tính đè');

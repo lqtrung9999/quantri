@@ -347,7 +347,7 @@
     const table = document.querySelector('#cf-customs-form .cf-customs-table');
     if (!table || table.dataset.kttVatColumn === '1') return;
     table.querySelectorAll('thead th').forEach(header => {
-      if (/^Giá khai/i.test(header.textContent.trim())) header.textContent = 'Giá khai USD (gợi ý, có thể sửa)';
+      if (/^Giá khai/i.test(header.textContent.trim())) header.textContent = 'Giá khai USD';
       if (/^Thuế NK\s*%/i.test(header.textContent.trim())) header.textContent = 'Thuế NK %';
     });
     table.dataset.kttVatColumn = '1';
