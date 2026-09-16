@@ -372,11 +372,13 @@ function cleanCustomsLine(line, index) {
   const quantity1 = numeric(line?.quantity1), description = String(line?.goodsDescription || '').trim().slice(0, 200);
   const exchangeRate = customsSettings().exchangeRateUsdVnd, importTaxRate = numeric(line?.importTaxRate), vatRate = numeric(line?.vatRate);
   const invoicePriceBeforeTax = numeric(line?.invoicePriceBeforeTax);
-  const declaredPriceUsd = exchangeRate > 0 ? Math.round((invoicePriceBeforeTax / exchangeRate * (98 - importTaxRate) / 100) * 1000) / 1000 : 0;
+  const declaredPriceManual = line?.declaredPriceManual === true;
+  const suggestedPriceUsd = exchangeRate > 0 ? Math.round((invoicePriceBeforeTax / exchangeRate * (98 - importTaxRate) / 100) * 1000) / 1000 : 0;
+  const declaredPriceUsd = declaredPriceManual ? numeric(line?.declaredPriceUsd) : suggestedPriceUsd;
   const taxableVnd = quantity1 * declaredPriceUsd * exchangeRate;
   const importTaxAmount = taxableVnd * importTaxRate / 100;
   const vatTaxAmount = (importTaxAmount + taxableVnd) * vatRate / 100;
-  return { id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, englishName: String(line?.englishName || '').trim().slice(0, 500), goodsDescription: description, note: String(line?.note || '').trim().slice(0, 1000), invoicePriceBeforeTax: String(line?.invoicePriceBeforeTax || '').trim().slice(0, 100), hsCode: String(line?.hsCode || '').trim().slice(0, 30), quantity1, unit1: String(line?.unit1 || 'Cái').trim().slice(0, 30), quantity2: numeric(line?.quantity2), unit2: String(line?.unit2 || '').trim().slice(0, 30), declaredPriceUsd, packageCount: numeric(line?.packageCount), netWeightKg: numeric(line?.netWeightKg), grossWeightKg: numeric(line?.grossWeightKg), totalUsd: quantity1 * declaredPriceUsd, exchangeRateUsdVnd: exchangeRate, importTaxRate, importTaxAmount, vatRate, vatTaxAmount, totalTaxVnd: importTaxAmount + vatTaxAmount, characterCount: description.length };
+  return { id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, englishName: String(line?.englishName || '').trim().slice(0, 500), goodsDescription: description, note: String(line?.note || '').trim().slice(0, 1000), invoicePriceBeforeTax: String(line?.invoicePriceBeforeTax || '').trim().slice(0, 100), hsCode: String(line?.hsCode || '').trim().slice(0, 30), quantity1, unit1: String(line?.unit1 || 'Cái').trim().slice(0, 30), quantity2: numeric(line?.quantity2), unit2: String(line?.unit2 || '').trim().slice(0, 30), declaredPriceUsd, declaredPriceManual, packageCount: numeric(line?.packageCount), netWeightKg: numeric(line?.netWeightKg), grossWeightKg: numeric(line?.grossWeightKg), totalUsd: quantity1 * declaredPriceUsd, exchangeRateUsdVnd: exchangeRate, importTaxRate, importTaxAmount, vatRate, vatTaxAmount, totalTaxVnd: importTaxAmount + vatTaxAmount, characterCount: description.length };
 }
 function crmNewToday() {
   const values = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts().filter(part => part.type !== 'literal').map(part => [part.type, part.value]));

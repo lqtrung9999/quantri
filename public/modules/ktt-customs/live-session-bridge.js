@@ -35,7 +35,7 @@
     invoicePrice: line.invoicePriceBeforeTax || '', hs: line.hsCode || '', qty1: line.quantity1 || '', unit1: line.unit1 || '',
     qty2: line.quantity2 || '', unit2: line.unit2 || '', price: line.declaredPriceUsd || '', packs: line.packageCount || '',
     net: line.netWeightKg || '', gross: line.grossWeightKg || '', amount: line.totalUsd || '', importRate: line.importTaxRate || '',
-    importTax: line.importTaxAmount || '', vatRate: line.vatRate || '', vatTax: line.vatTaxAmount || '', totalTax: line.totalTaxVnd || '', charCount: (line.goodsDescription || '').length
+    importTax: line.importTaxAmount || '', vatRate: line.vatRate || '', vatTax: line.vatTaxAmount || '', totalTax: line.totalTaxVnd || '', priceManual: line.declaredPriceManual === true, charCount: (line.goodsDescription || '').length
   });
   // The locked workflow renders the LIST KHAI BÁO badge from `row.customs`.
   // API data is stored as `customsLines`, so expose its first row in the
@@ -112,7 +112,8 @@
   function customsLines(form) {
     return [...form.querySelectorAll('[data-custom-line]')].map((row, index) => {
       const f = name => row.querySelector(`[data-custom-field="${name}"]`)?.value?.trim() || '';
-      return { id: row.dataset.customLine || `customs-${index}`, englishName: f('en'), goodsDescription: f('vi'), note: f('note'), invoicePriceBeforeTax: f('invoicePrice'), hsCode: f('hs'), quantity1: f('qty1'), unit1: f('unit1'), quantity2: f('qty2'), unit2: f('unit2'), declaredPriceUsd: f('price'), packageCount: f('packs'), netWeightKg: f('net'), grossWeightKg: f('gross'), importTaxRate: f('importRate'), importTaxAmount: f('importTax'), vatRate: f('vatRate'), vatTaxAmount: f('vatTax'), totalTaxVnd: f('totalTax') };
+      const priceField = row.querySelector('[data-custom-field="price"]');
+      return { id: row.dataset.customLine || `customs-${index}`, englishName: f('en'), goodsDescription: f('vi'), note: f('note'), invoicePriceBeforeTax: f('invoicePrice'), hsCode: f('hs'), quantity1: f('qty1'), unit1: f('unit1'), quantity2: f('qty2'), unit2: f('unit2'), declaredPriceUsd: f('price'), declaredPriceManual: priceField?.dataset.manual === '1', packageCount: f('packs'), netWeightKg: f('net'), grossWeightKg: f('gross'), importTaxRate: f('importRate'), importTaxAmount: f('importTax'), vatRate: f('vatRate'), vatTaxAmount: f('vatTax'), totalTaxVnd: f('totalTax') };
     }).filter(line => line.goodsDescription || line.hsCode);
   }
   function allowSale() { return ['sale', 'manager', 'admin'].includes(currentUser?.role); }
@@ -346,7 +347,7 @@
     const table = document.querySelector('#cf-customs-form .cf-customs-table');
     if (!table || table.dataset.kttVatColumn === '1') return;
     table.querySelectorAll('thead th').forEach(header => {
-      if (/^Giá khai/i.test(header.textContent.trim())) header.textContent = 'Giá khai USD (tự tính)';
+      if (/^Giá khai/i.test(header.textContent.trim())) header.textContent = 'Giá khai USD (gợi ý, có thể sửa)';
       if (/^Thuế NK\s*%/i.test(header.textContent.trim())) header.textContent = 'Thuế NK %';
     });
     table.dataset.kttVatColumn = '1';
@@ -359,12 +360,14 @@
   }
   function calculatePopupTaxes() {
     const rate = Number(window.KTT_CUSTOMS_SESSION?.settings?.exchangeRateUsdVnd || 0);
-    document.querySelectorAll('#cf-customs-form .cf-customs-row').forEach(row => {
+    document.querySelectorAll('#cf-customs-form .cf-customs-row').forEach((row, index) => {
       const value = name => Number(String(row.querySelector(`[data-custom-field="${name}"]`)?.value || '').replace(/,/g, '')) || 0;
       const set = (name, number) => { const field = row.querySelector(`[data-custom-field="${name}"]`); if (field) { field.readOnly = true; field.value = number ? number.toLocaleString('en-US', { maximumFractionDigits: 2 }) : ''; } };
       const importRate = value('importRate');
-      const price = rate > 0 ? Math.round((value('invoicePrice') / rate * (98 - importRate) / 100) * 1000) / 1000 : 0;
-      const priceField = row.querySelector('[data-custom-field="price"]'); if (priceField) { priceField.readOnly = true; priceField.value = price ? price.toFixed(3) : ''; }
+      const suggestedPrice = rate > 0 ? Math.round((value('invoicePrice') / rate * (98 - importRate) / 100) * 1000) / 1000 : 0;
+      const priceField = row.querySelector('[data-custom-field="price"]');
+      if (priceField) { if (priceField.dataset.manual == null) priceField.dataset.manual = selectedShipment()?.customsLines?.[index]?.priceManual ? '1' : '0'; priceField.readOnly = false; if (priceField.dataset.manual !== '1') priceField.value = suggestedPrice ? suggestedPrice.toFixed(3) : ''; }
+      const price = value('price');
       const base = value('qty1') * price * rate;
       const importTax = base * importRate / 100;
       const vatTax = (importTax + base) * value('vatRate') / 100;
@@ -462,8 +465,9 @@
   document.addEventListener('input', event => {
     const field = event.target.closest('#cf-customs-form [data-custom-field], #cf-sale-form [data-field]');
     if (!field) return;
-    const numeric = ['packs', 'productsPerPack', 'qty', 'invoicePrice', 'qty1', 'price', 'amount', 'importRate', 'importTax', 'vatRate', 'vatTax', 'totalTax'];
+    const numeric = ['packs', 'productsPerPack', 'qty', 'qty1', 'price', 'amount', 'importRate', 'importTax', 'vatRate', 'vatTax', 'totalTax'];
     const name = field.dataset.customField || field.dataset.field;
+    if (name === 'price') field.dataset.manual = field.value.trim() ? '1' : '0';
     if (numeric.includes(name) && !field.readOnly) {
       const raw = field.value.replace(/[^0-9.]/g, '');
       field.value = raw ? (Number(raw) || 0).toLocaleString('en-US', { maximumFractionDigits: 4 }) : '';

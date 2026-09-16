@@ -9,7 +9,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const n = value => Number(String(value ?? '').replace(/[,\s]/g, '')) || 0;
   const fmt = value => value === '' || value == null ? '' : n(value).toLocaleString('en-US', { maximumFractionDigits: 4 });
-  const numericFields = new Set(['packs', 'productsPerPack', 'qty', 'invoicePrice', 'qty1', 'price', 'amount', 'importRate', 'importTax', 'vatRate', 'vatTax', 'totalTax']);
+  const numericFields = new Set(['packs', 'productsPerPack', 'qty', 'qty1', 'price', 'amount', 'importRate', 'importTax', 'vatRate', 'vatTax', 'totalTax']);
   const roleCanSale = user => Boolean(user && (['admin', 'manager'].includes(user.role) || user.role === 'sale'));
   const roleCanCustoms = user => Boolean(user && ['admin', 'customs_declaration'].includes(user.role));
   const statusLabel = status => ({ sale_required: 'Chờ Sale bổ sung', customs_pending: 'Chờ Khai báo lên list', customer_confirmation: 'Chờ Khai báo xác nhận', ready_for_loading: 'Sẵn sàng xếp xe' }[status] || status || 'Chưa xác định');
@@ -27,14 +27,14 @@
   const customsFields = [
     ['en', 'Tên tiếng Anh', 'text'], ['vi', 'Mô tả hàng hóa', 'text'], ['note', 'NOTE', 'text'],
     ['invoicePrice', 'Giá XHĐ trước thuế', 'text'], ['hs', 'Mã HS', 'text'], ['qty1', 'Số lượng khai báo', 'number'], ['unit1', 'Đơn vị khai báo', 'text'],
-    ['price', 'Giá khai USD (tự tính)', 'readonly'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
+    ['price', 'Giá khai USD (gợi ý, có thể sửa)', 'number'], ['amount', 'Tổng USD', 'readonly'], ['importRate', 'Thuế NK %', 'number'],
     ['importTax', 'Thuế NK', 'readonly'], ['vatRate', 'VAT %', 'number'], ['vatTax', 'Thuế VAT', 'readonly'], ['totalTax', 'Tổng thuế VNĐ', 'readonly']
   ];
   const customerVatTax = line => n(line.invoicePrice) * n(line.qty1) * n(line.vatRate) / 100;
   const customerTotalTax = line => n(line.importTax) + customerVatTax(line);
   const confirmationFields = [
     ['Mã hàng', (item) => item.code], ['STT', (_, line, index) => index + 1], ['Mô tả hàng hóa', (_, line) => line.vi],
-    ['Giá XHĐ trước thuế', (_, line) => fmt(line.invoicePrice)], ['Số lượng khai báo', (_, line) => fmt(line.qty1)],
+    ['Giá XHĐ trước thuế', (_, line) => line.invoicePrice], ['Số lượng khai báo', (_, line) => fmt(line.qty1)],
     ['Đơn vị khai báo', (_, line) => line.unit1], ['Thuế NK %', (_, line) => fmt(line.importRate)], ['Thuế NK', (_, line) => fmt(line.importTax)],
     ['VAT (%)', (_, line) => fmt(line.vatRate)], ['Thuế VAT', (_, line) => fmt(customerVatTax(line))], ['Tổng thuế (VNĐ)', (_, line) => fmt(customerTotalTax(line))]
   ];
@@ -77,12 +77,12 @@
     const options = [...units.map(unit => `<option value="${unit}" ${unit.toLocaleLowerCase('vi-VN') === current.toLocaleLowerCase('vi-VN') ? 'selected' : ''}>${unit}</option>`), ...(!known ? [`<option value="${esc(current)}" selected>${esc(current)}</option>`] : []), '<option value="__custom__">Nhập đơn vị khác…</option>'];
     return `<select class="xp-unit-select" data-${scope}-field="${field}" data-row="${rowIndex}" ${editable ? '' : 'disabled'}>${options.join('')}</select>`;
   }
-  function input(field, value, editable, scope, rowIndex) {
+  function input(field, value, editable, scope, rowIndex, manual = false) {
     const longText = field === 'description' || field === 'en' || field === 'vi';
     const longTextClass = field === 'description' ? 'sale-text' : field === 'en' ? 'english-text' : 'declaration-text';
     if (longText) return `<textarea class="long-text ${longTextClass}" rows="3" data-${scope}-field="${field}" data-row="${rowIndex}" ${(field === 'description' || field === 'vi') ? 'maxlength="200"' : ''} ${editable ? '' : 'disabled'}>${esc(value)}</textarea>${field === 'vi' ? `<div class="xp-match-warning" data-match-row="${rowIndex}"></div>` : ''}`;
     if (field === 'unit' || field === 'unit1') return unitSelect(field, value, editable, scope, rowIndex);
-    return `<input data-${scope}-field="${field}" data-row="${rowIndex}" value="${esc(numericFields.has(field) ? fmt(value) : value)}" ${editable ? '' : 'disabled'}>`;
+    return `<input data-${scope}-field="${field}" data-row="${rowIndex}" ${field === 'price' ? `data-manual="${manual ? '1' : '0'}"` : ''} value="${esc(numericFields.has(field) ? fmt(value) : value)}" ${editable ? '' : 'disabled'}>`;
   }
   function shipmentCard(item) {
     const user = session().user;
@@ -99,7 +99,7 @@
       ${item._status === 'customs_pending' && item.customerChangeNote ? `<div class="xp-return-note"><b>↩ Nội dung khách yêu cầu chỉnh sửa</b><span>${esc(item.customerChangeNote)}</span></div>` : ''}
       ${['sale_required', 'customs_pending'].includes(item._status) && item.supplementRequest ? `<div class="xp-return-note xp-sale-note"><b>↩ Thông tin Sale cần bổ sung</b><span>${esc(item.supplementRequest)}</span></div>` : ''}
       <div class="xp-table-wrap"><table class="xp-table"><thead><tr><th class="pin code" rowspan="2">Mã hàng</th><th class="pin product" rowspan="2">Tên hàng Kho TQ</th><th colspan="${saleFields.length}" class="sale-group">THÔNG TIN SALE</th><th colspan="${customsFields.length}" class="customs-group">LIST KHAI BÁO</th><th class="xp-operation-head" rowspan="2">Thao tác</th></tr><tr>${saleFields.map(([, label]) => `<th class="sale-head">${esc(label)}</th>`).join('')}${customsFields.map(([, label]) => `<th class="customs-head">${esc(label)}</th>`).join('')}</tr></thead><tbody>
-      ${lines.map((line, index) => `<tr><td class="pin code"><b>${esc(item.code)}</b><small>Dòng ${index + 1}</small></td><td class="pin product">${esc(item.name)}</td>${saleFields.map(([field]) => `<td>${input(field, line.sale[field] ?? '', saleEditable, 'sale', index)}</td>`).join('')}${customsFields.map(([field, , type]) => { const suggested = field === 'invoicePrice' ? (line.customs[field] || line.sale.invoicePrice || '') : field === 'qty1' ? (line.customs[field] || line.sale.qty || '') : field === 'unit1' ? (line.customs[field] || line.sale.unit || 'Cái') : line.customs[field] ?? ''; return `<td>${input(field, suggested, customsEditable && type !== 'readonly', 'customs', index)}</td>`; }).join('')}<td class="xp-line-actions">${saleEditable || customsEditable ? '<button type="button" class="xp-clone-line">Nhân bản</button><button type="button" class="xp-delete-line">Xóa dòng</button>' : '—'}</td></tr>`).join('')}
+      ${lines.map((line, index) => `<tr><td class="pin code"><b>${esc(item.code)}</b><small>Dòng ${index + 1}</small></td><td class="pin product">${esc(item.name)}</td>${saleFields.map(([field]) => `<td>${input(field, line.sale[field] ?? '', saleEditable, 'sale', index)}</td>`).join('')}${customsFields.map(([field, , type]) => { const suggested = field === 'invoicePrice' ? (line.customs[field] || line.sale.invoicePrice || '') : field === 'qty1' ? (line.customs[field] || line.sale.qty || '') : field === 'unit1' ? (line.customs[field] || line.sale.unit || 'Cái') : line.customs[field] ?? ''; return `<td>${input(field, suggested, customsEditable && type !== 'readonly', 'customs', index, field === 'price' && line.customs.priceManual)}</td>`; }).join('')}<td class="xp-line-actions">${saleEditable || customsEditable ? '<button type="button" class="xp-clone-line">Nhân bản</button><button type="button" class="xp-delete-line">Xóa dòng</button>' : '—'}</td></tr>`).join('')}
       </tbody></table></div>
       ${customsEditable ? '<div class="xp-supplement-box" hidden><label>Thông tin Sale cần bổ sung</label><textarea class="xp-supplement-note" placeholder="VD: Dòng 1 máy chưa có công suất; chưa có tên nhà sản xuất; cần bổ sung ảnh tem sản phẩm..."></textarea><div><button class="cf-action primary xp-request-supplement">Gửi yêu cầu và trả về Sale</button></div></div>' : ''}
       <div class="xp-actions"><span>${saleEditable ? 'Sale đang được nhập liệu' : customsEditable ? 'Khai báo đang được nhập liệu' : 'Dữ liệu chỉ đọc ở trạng thái hiện tại'}</span><div>
@@ -117,8 +117,9 @@
       const amount = tr.querySelector('[data-customs-field="amount"]');
       const importRate = n(tr.querySelector('[data-customs-field="importRate"]')?.value);
       const vatRate = n(tr.querySelector('[data-customs-field="vatRate"]')?.value);
-      const price = rate > 0 ? Math.round((invoicePrice / rate * (98 - importRate) / 100) * 1000) / 1000 : 0;
-      if (priceInput) priceInput.value = price ? price.toFixed(3) : '';
+      const suggestedPrice = rate > 0 ? Math.round((invoicePrice / rate * (98 - importRate) / 100) * 1000) / 1000 : 0;
+      if (priceInput && priceInput.dataset.manual !== '1') priceInput.value = suggestedPrice ? suggestedPrice.toFixed(3) : '';
+      const price = n(priceInput?.value);
       const base = qty * price * rate;
       const importTax = base * importRate / 100;
       const vatTax = (base + importTax) * vatRate / 100;
@@ -170,7 +171,7 @@
     return collect(card, 'sale', saleFields).map(line => ({ description: line.description, packageCount: line.packs, productsPerPackage: line.productsPerPack, productSize: line.size, declarationQuantity: line.qty, declarationUnit: line.unit, invoicePriceBeforeVat: line.invoicePrice, note: line.note, images: [] }));
   }
   function customsPayload(card) {
-    return collect(card, 'customs', customsFields).map(line => ({ englishName: line.en, goodsDescription: line.vi, note: line.note, invoicePriceBeforeTax: line.invoicePrice, hsCode: line.hs, quantity1: line.qty1, unit1: line.unit1, declaredPriceUsd: line.price, importTaxRate: line.importRate, importTaxAmount: line.importTax, vatRate: line.vatRate, vatTaxAmount: line.vatTax, totalTaxVnd: line.totalTax }));
+    return collect(card, 'customs', customsFields).map((line, index) => ({ englishName: line.en, goodsDescription: line.vi, note: line.note, invoicePriceBeforeTax: line.invoicePrice, hsCode: line.hs, quantity1: line.qty1, unit1: line.unit1, declaredPriceUsd: line.price, declaredPriceManual: card.querySelector(`[data-customs-field="price"][data-row="${index}"]`)?.dataset.manual === '1', importTaxRate: line.importRate, importTaxAmount: line.importTax, vatRate: line.vatRate, vatTaxAmount: line.vatTax, totalTaxVnd: line.totalTax }));
   }
   function appendEmptyLine(card) {
     const body = card.querySelector('.xp-table tbody'), source = body?.querySelector('tr:last-child');
@@ -179,7 +180,7 @@
     row.querySelectorAll('[data-sale-field], [data-customs-field]').forEach(control => {
       control.dataset.row = index;
       if (control.tagName === 'SELECT') control.value = 'Cái'; else control.value = '';
-      control.disabled = control.hasAttribute('data-sale-field') ? !roleCanSale(session().user) || card.querySelector('.xp-badge')?.classList.contains('customs_pending') : !roleCanCustoms(session().user) || !card.querySelector('.xp-badge')?.classList.contains('customs_pending') || ['price', 'amount', 'importTax', 'vatTax', 'totalTax'].includes(control.dataset.customsField);
+      control.disabled = control.hasAttribute('data-sale-field') ? !roleCanSale(session().user) || card.querySelector('.xp-badge')?.classList.contains('customs_pending') : !roleCanCustoms(session().user) || !card.querySelector('.xp-badge')?.classList.contains('customs_pending') || ['amount', 'importTax', 'vatTax', 'totalTax'].includes(control.dataset.customsField);
     });
     row.querySelector('.pin.code small').textContent = `Dòng ${index + 1}`;
     row.querySelectorAll('.xp-match-warning').forEach(box => { box.classList.remove('show'); box.innerHTML = ''; delete box.dataset.dismissed; });
@@ -340,6 +341,7 @@
   const warningTimers = new WeakMap();
   workspace.addEventListener('input', event => {
     const card = event.target.closest('.xp-card'); if (!card) return;
+    if (event.target.matches('[data-customs-field="price"]')) event.target.dataset.manual = event.target.value.trim() ? '1' : '0';
     workspace.dataset.dirty = '1'; calculate(card);
     if (event.target.matches('textarea.long-text')) centerLongTextarea(event.target);
     if (event.target.matches('[data-customs-field="vi"]')) { clearTimeout(warningTimers.get(event.target)); warningTimers.set(event.target, setTimeout(() => showDeclaredWarning(event.target), 250)); }
