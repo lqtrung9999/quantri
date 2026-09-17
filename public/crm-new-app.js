@@ -51,10 +51,15 @@
   const select = (values, current, editable, field) => `<select class="status ${field === 'result' ? 'result-select' : ''}" data-field="${field}" ${editable ? '' : 'disabled'}>${values.map(value => `<option value="${esc(value)}" ${value === current ? 'selected' : ''}>${esc(value)}</option>`).join('')}</select>`;
   const sourceClass = source => ({ Facebook: 'fb', Google: 'google', Shopee: 'shopee', TikTok: 'tiktok' }[source] || 'fb');
 
+  function saleScopedLeads() {
+    const sale = user?.role === 'admin' ? $('#sale-filter').value : '';
+    return sale ? leads.filter(lead => String(lead.sale || '').trim() === sale) : leads;
+  }
+
   function filtered() {
     const search = $('.searchbar input').value.trim().toLocaleLowerCase('vi-VN');
     const [sourceFilter, statusFilter] = [...document.querySelectorAll('.searchbar select')].map(element => element.value);
-    return leads.filter(lead => {
+    return saleScopedLeads().filter(lead => {
       const isNonPotential = lead.category === 'Khách không tiềm năng';
       const isClosed = lead.result === 'Đã Chốt';
       const quick = activeTab === 'all' ? !isNonPotential && !isClosed : activeTab === 'potential' ? !isNonPotential && !isClosed && ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category) : activeTab === 'nonpotential' ? isNonPotential && !isClosed : activeTab === 'closed' ? isClosed : !isNonPotential && !isClosed && lead.status === activeTab.slice(7);
@@ -73,11 +78,15 @@
   }
   function renderTabs() {
     const tabs = [['all', 'Tất cả'], ...STATUS.slice(1).map(status => [`status:${status}`, status])];
-    const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
+    const workingLeads = saleScopedLeads().filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
     const count = value => value === 'all' ? workingLeads.length : workingLeads.filter(lead => lead.status === value.slice(7)).length;
     $('.tabs').innerHTML = tabs.map(([value, label]) => `<span data-tab="${esc(value)}" class="${value === activeTab ? 'active' : ''}">${esc(label)} ${count(value)}</span>`).join('');
   }
   function renderFilters() {
+    const saleFilter = $('#sale-filter'), selectedSale = saleFilter.value;
+    saleFilter.hidden = user.role !== 'admin';
+    const sales = [...new Set(leads.map(lead => String(lead.sale || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+    saleFilter.innerHTML = `<option value="">Tất cả sale</option>${sales.map(sale => `<option value="${esc(sale)}" ${sale === selectedSale ? 'selected' : ''}>${esc(sale)}</option>`).join('')}`;
     const selects = [...document.querySelectorAll('.searchbar select')];
     const source = selects[0].value || 'Tất cả nguồn', status = selects[1].value || 'Mọi trạng thái Zalo';
     const sources = [...new Set(leads.map(lead => lead.source).filter(Boolean))];
@@ -85,9 +94,10 @@
     selects[1].innerHTML = `<option>Mọi trạng thái Zalo</option>${STATUS.slice(1).map(value => `<option ${value === status ? 'selected' : ''}>${esc(value)}</option>`).join('')}`;
   }
   function renderMetrics() {
-    const workingLeads = leads.filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
-    const count = predicate => leads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
-    const values = [leads.length, workingLeads.filter(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)).length, count(lead => lead.category === 'Khách không tiềm năng' && lead.result !== 'Đã Chốt'), count(lead => lead.result === 'Đã Chốt')];
+    const workingLeads = saleScopedLeads().filter(lead => lead.category !== 'Khách không tiềm năng' && lead.result !== 'Đã Chốt');
+    const scopedLeads = saleScopedLeads();
+    const count = predicate => scopedLeads.filter(predicate).length, cards = [...document.querySelectorAll('.metric')];
+    const values = [scopedLeads.length, workingLeads.filter(lead => ['Khách tiềm năng', 'Khách cực kỳ tiềm năng'].includes(lead.category)).length, count(lead => lead.category === 'Khách không tiềm năng' && lead.result !== 'Đã Chốt'), count(lead => lead.result === 'Đã Chốt')];
     const descriptions = ['Tất cả data khách hàng đã tạo', 'Gồm tiềm năng và cực kỳ tiềm năng', 'Theo phân loại khách hàng', 'Khách đã được xác nhận chốt'];
     const labels = ['TỔNG DATA', 'KHÁCH HÀNG TIỀM NĂNG', 'KHÁCH HÀNG KHÔNG TIỀM NĂNG', 'ĐÃ CHỐT'];
     cards.forEach((card, index) => { card.querySelector('.label').textContent = labels[index]; card.querySelector('b').textContent = values[index]; card.querySelector('b + span').textContent = descriptions[index]; card.querySelector('b + span').className = values[index] ? 'green' : ''; });
@@ -152,7 +162,7 @@
   }
 
   $('.searchbar input').addEventListener('input', renderRows);
-  document.querySelectorAll('.searchbar select').forEach(element => element.addEventListener('change', renderRows));
+  document.querySelectorAll('.searchbar select').forEach(element => element.addEventListener('change', element.id === 'sale-filter' ? render : renderRows));
   $('.filter').onclick = () => { $('.searchbar input').value = ''; document.querySelectorAll('.searchbar select').forEach((element, index) => element.selectedIndex = 0); activeTab = 'all'; render(); };
   $('.tabs').addEventListener('click', event => { const tab = event.target.closest('[data-tab]'); if (!tab) return; activeTab = tab.dataset.tab; render(); });
   $('#rows').addEventListener('click', event => { const row = event.target.closest('tr[data-id]'), lead = row && leads.find(item => item.id === row.dataset.id); if (!lead) return; if (event.target.closest('.customer-name')) openProfile(lead); else if (event.target.closest('.note')) openNotes(lead); });
