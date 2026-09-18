@@ -22,7 +22,7 @@ const customsExcelTemplateFile = path.join(publicDir, 'modules', 'ktt-customs', 
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 let larkTokenCache = { value: '', expiresAt: 0 };
 let trackingCache = { value: null, expiresAt: 0 };
 let customsWarehouseSyncCache = { expiresAt: 0 };
@@ -33,6 +33,11 @@ const saleExcelUploads = new Map();
 const saleExcelUploadDir = path.join(__dirname, 'logs', 'sale-excel-uploads');
 const saleExcelMaxBytes = 500 * 1024 * 1024;
 const saleExcelChunkBytes = 1024 * 1024;
+const saleImageUploads = new Map();
+const saleImageUploadDir = path.join(__dirname, 'logs', 'sale-image-uploads');
+const saleImagePublicDir = path.join(publicDir, 'uploads', 'customs-sale-images');
+const saleImageMaxBytes = 8 * 1024 * 1024;
+const saleImageChunkBytes = 768 * 1024;
 const crmLarkReporter = createLarkReporter({
   directory: path.join(__dirname, 'crm-new-lark-private'),
   readRows: crmNewRows,
@@ -418,7 +423,7 @@ function currentUser(req) {
   } catch { return null; }
 }
 function profile(user) { return { id: user.id, name: user.name, role: user.role, sale: user.sale || null, team: leaderTeam(user) }; }
-function readJson(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Dữ liệu không hợp lệ')); } }); req.on('error', reject); }); }
+function readJson(req) { return new Promise((resolve, reject) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 3000000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Dữ liệu không hợp lệ')); } }); req.on('error', reject); }); }
 async function larkToken(config) {
   if (larkTokenCache.value && larkTokenCache.expiresAt > Date.now()) return larkTokenCache.value;
   const response = await fetch('https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal', {
@@ -738,6 +743,49 @@ http.createServer(async (req, res) => {
     return fs.readFile(path.join(publicDir, 'logo-kim-thanh-tin-transparent.png'), (error, content) => error ? send(res, 404, 'Không tìm thấy logo.', 'text/plain; charset=utf-8') : send(res, 200, content, 'image/png'));
   }
   const user = currentUser(req);
+  if (pathname === '/api/customs-sale-images/start' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    try {
+      for (const [staleId, stale] of saleImageUploads) if (Date.now() - stale.createdAt > 2 * 60 * 60 * 1000) { saleImageUploads.delete(staleId); try { fs.unlinkSync(stale.filePath); } catch {} }
+      const { fileName, fileSize, shipmentId, mimeType } = await readJson(req), size = Number(fileSize || 0), shipment = customsRows().find(row => row.id === shipmentId);
+      if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng cần tải ảnh.' });
+      const team = leaderTeam(user), managesShipment = Boolean(team && (normalized(shipment.saleTeam) === normalized(team) || normalized(shipment.saleOwner).startsWith(normalized(team)))), owns = sameSale(shipment.saleOwner, user.sale) || sameSale(shipment.saleOwner, user.name);
+      if (!(user.role === 'admin' || managesShipment || (user.role === 'sale' && owns)) || shipment.status !== 'sale_required') return send(res, 403, { error: 'Chỉ Sale phụ trách được tải ảnh khi hồ sơ đang chờ Sale bổ sung.' });
+      const allowed = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }, extension = allowed[String(mimeType || '').toLowerCase()];
+      if (!extension) return send(res, 400, { error: 'Chỉ nhận ảnh JPG, PNG hoặc WebP.' });
+      if (!(size > 0) || size > saleImageMaxBytes) return send(res, 400, { error: 'Mỗi ảnh phải nhỏ hơn hoặc bằng 8 MB.' });
+      fs.mkdirSync(saleImageUploadDir, { recursive: true, mode: 0o700 });
+      const uploadId = crypto.randomUUID(), filePath = path.join(saleImageUploadDir, `${uploadId}${extension}`);
+      fs.writeFileSync(filePath, Buffer.alloc(0), { mode: 0o600 });
+      saleImageUploads.set(uploadId, { userId: user.id, shipmentId, filePath, fileName: path.basename(String(fileName || 'anh-hang').replace(/[\\/]/g, '-')).slice(0, 255), mimeType: String(mimeType).toLowerCase(), extension, expectedSize: size, received: 0, nextIndex: 0, createdAt: Date.now() });
+      return send(res, 200, { uploadId, chunkSize: saleImageChunkBytes });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể bắt đầu tải ảnh.' }); }
+  }
+  if (pathname === '/api/customs-sale-images/chunk' && req.method === 'PUT') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    const query = new URL(req.url, 'https://dashboard.local').searchParams, upload = saleImageUploads.get(String(query.get('id') || '')), index = Number(query.get('index'));
+    if (!upload || upload.userId !== user.id) return send(res, 404, { error: 'Phiên tải ảnh không còn hiệu lực.' });
+    if (index !== upload.nextIndex) return send(res, 409, { error: 'Thứ tự phần tải ảnh không hợp lệ.' });
+    try {
+      const chunk = await readRaw(req, saleImageChunkBytes); if (!chunk.length || upload.received + chunk.length > upload.expectedSize) throw new Error('Dung lượng ảnh tải lên không hợp lệ.');
+      fs.appendFileSync(upload.filePath, chunk); upload.received += chunk.length; upload.nextIndex += 1;
+      return send(res, 200, { ok: true, received: upload.received });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể nhận phần ảnh.' }); }
+  }
+  if (pathname === '/api/customs-sale-images/finish' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    let upload, uploadId = '';
+    try {
+      const body = await readJson(req); uploadId = String(body.uploadId || ''); upload = saleImageUploads.get(uploadId);
+      if (!upload || upload.userId !== user.id) return send(res, 404, { error: 'Phiên tải ảnh không còn hiệu lực.' });
+      if (upload.received !== upload.expectedSize) return send(res, 400, { error: 'Ảnh chưa được tải lên đầy đủ.' });
+      fs.mkdirSync(saleImagePublicDir, { recursive: true, mode: 0o700 });
+      const storedName = `${crypto.randomUUID()}${upload.extension}`, storedPath = path.join(saleImagePublicDir, storedName);
+      fs.renameSync(upload.filePath, storedPath); upload.filePath = '';
+      return send(res, 200, { image: { id: crypto.randomUUID(), url: `/uploads/customs-sale-images/${storedName}`, fileName: upload.fileName, mimeType: upload.mimeType } });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể hoàn tất tải ảnh.' }); }
+    finally { if (upload) { saleImageUploads.delete(uploadId); if (upload.filePath) try { fs.unlinkSync(upload.filePath); } catch {} } }
+  }
   if (pathname === '/api/customs-sale-excel/start' && req.method === 'POST') {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     try {
@@ -1115,7 +1163,7 @@ http.createServer(async (req, res) => {
         const draft = action === 'save_sale_draft';
         if (!draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã gửi và đang bị khóa. Hãy tạo yêu cầu sửa đổi.' });
         if (draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã khóa, không thể lưu nháp.' });
-        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 200), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 2000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
+        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 200), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 500000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
         if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
         const before = { saleProductLines: shipment.saleProductLines };
         const from = shipment.status; shipment.saleProductLines = productLines;
@@ -1254,6 +1302,7 @@ http.createServer(async (req, res) => {
       const encodeForSrcdoc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
       const sessionBridge = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'live-session-bridge.js'), 'utf8'));
       const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
+      const processingImagesWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-images-workspace.js'), 'utf8'));
       const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
       const customsDocumentsWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'customs-documents-workspace.js'), 'utf8'));
       const warehouseWorkspace = canImportCustomsWarehouse(user) ? encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'warehouse-workspace.js'), 'utf8')) : '';
@@ -1263,6 +1312,7 @@ http.createServer(async (req, res) => {
         .replace('sandbox="allow-scripts"', 'sandbox="allow-scripts allow-same-origin allow-downloads allow-modals"')
         .replace('script-src &#x27;unsafe-inline&#x27;', 'script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;')
         .replaceAll('connect-src blob: data:', 'connect-src &#x27;self&#x27; blob: data:')
+        .replaceAll('img-src blob: data:', 'img-src &#x27;self&#x27; blob: data:')
         .replace('const data=[', 'const data=window.KTT_CUSTOMS_DATA=[')
         .replace(';render();\n    })();', ';window.KTT_CUSTOMS_RENDER=render;render();\n    })();')
         // Drafts, locks and correction requests are enforced by the live API
@@ -1270,7 +1320,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${processingImagesWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content

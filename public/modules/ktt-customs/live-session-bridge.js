@@ -28,7 +28,9 @@
     id: line.id || `sale-${index}`,
     description: line.description || '', qty: line.declarationQuantity || '', unit: line.declarationUnit || 'PCE',
     invoicePrice: line.invoicePriceBeforeVat || '', packs: line.packageCount || '', productsPerPack: line.productsPerPackage || '',
-    size: line.productSize || '', note: line.note || '', image: line.images && line.images[0] ? line.images[0].url : ''
+    size: line.productSize || '', note: line.note || '',
+    images: Array.isArray(line.images) ? line.images.filter(image => image?.url).map(image => ({ id: image.id || '', url: image.url, fileName: image.fileName || '', mimeType: image.mimeType || '' })) : [],
+    image: line.images && line.images[0] ? line.images[0].url : ''
   });
   const mapCustomsLine = (line, index) => ({
     id: line.id || `customs-${index}`, en: line.englishName || '', vi: line.goodsDescription || '', note: line.note || '',
@@ -533,6 +535,7 @@
     #customs-flow-app .cf-code{font-size:15px!important}#customs-flow-app .cf-sub,#customs-flow-app .cf-status{font-size:12px!important}
     #customs-flow-app .cf-dialog{width:min(1180px,96vw)!important}#customs-flow-app .cf-dialog-body,#customs-flow-app .cf-dialog-head{font-size:15px!important}
     #customs-flow-app .cf-work-tab,#customs-flow-app label,#customs-flow-app label input,#customs-flow-app label select,#customs-flow-app textarea{font-size:14px!important}
+    #customs-flow-app .cf-history-row{font-size:16px!important;line-height:1.5;padding:12px 0!important}
     #customs-flow-app .cf-line-table{font-size:13px!important}#customs-flow-app .cf-line-table input,#customs-flow-app .cf-line-table select,#customs-flow-app .cf-line-table textarea{font-size:13px!important}
     .ktt-server-lock{display:inline-flex;align-items:center;padding:9px 11px;border-radius:8px;background:#eaf8ef;color:#16835a;font-weight:700}.ktt-draft,.ktt-change{border-color:#ef7a2a!important;color:#d85d12!important;background:#fff!important}
   `;
