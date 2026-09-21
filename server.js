@@ -70,34 +70,37 @@ function excelCellText(value) {
 }
 async function parseSaleExcelFile(filePath) {
   const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath, { entries: 'ignore', sharedStrings: 'cache', hyperlinks: 'ignore', styles: 'ignore', worksheets: 'emit' });
-  const sourceRows = []; let sheetName = '';
+  const sheets = [];
   for await (const worksheet of workbook) {
-    sheetName = worksheet.name || 'Sheet1';
+    const sourceRows = [];
     for await (const row of worksheet) {
       if (row.number <= 2000) sourceRows.push({ number: row.number, values: Array.from({ length: Math.min(60, Math.max(15, row.cellCount || 0)) }, (_, index) => excelCellText(row.getCell(index + 1).value)) });
       if (sourceRows.length >= 2000) break;
     }
-    break;
+    if (sourceRows.some(row => row.values.some(Boolean))) sheets.push({ name: worksheet.name || 'Sheet1', rows: sourceRows });
   }
-  let headerIndex = sourceRows.findIndex(row => { const text = row.values.join(' ').toLocaleLowerCase('vi-VN'); return /tên hàng|tên sản phẩm|tên hàng cần khai/.test(text) && /số lượng|sl khai/.test(text); });
-  if (headerIndex < 0) throw new Error('Không tìm thấy dòng tiêu đề Tên hàng và Số lượng trong file.');
-  const header = sourceRows[headerIndex], secondary = sourceRows[headerIndex + 1] || { values: [] }, columnCount = Math.max(header.values.length, secondary.values.length);
-  const headers = Array.from({ length: columnCount }, (_, index) => `${header.values[index] || ''} ${secondary.values[index] || ''}`.toLocaleLowerCase('vi-VN'));
-  const findColumn = patterns => { const index = headers.findIndex(text => patterns.some(pattern => pattern.test(text))); return index < 0 ? 0 : index + 1; };
-  const columns = { model: findColumn([/^mã hàng/, /model/, /mã sản phẩm/]), brand: findColumn([/hãng hàng/, /nhãn hiệu/]), name: findColumn([/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/]), usage: findColumn([/công dụng/]), material: findColumn([/chất liệu/]), weight: findColumn([/trọng lượng/]), size: findColumn([/kích thước/]), specs: findColumn([/công suất/, /điện áp/]), quantity: findColumn([/số lượng khai báo/, /sl khai/]), unit: findColumn([/đơn vị khai báo/, /^đvt/]), price: findColumn([/giá sản phẩm/, /giá hđ/, /đơn giá/]), note: findColumn([/ghi chú/, /note/]) };
-  if (headers.some(text => /tên hàng cần khai/.test(text)) && columnCount >= 15) Object.assign(columns, { model: columns.model || 1, brand: columns.brand || 4, name: columns.name || 5, usage: columns.usage || 6, material: columns.material || 7, weight: columns.weight || 8, size: columns.size || 9, specs: columns.specs || 10, quantity: columns.quantity || 11, unit: columns.unit || 12, price: columns.price || 13, note: columns.note || 15 });
-  if (!columns.name || !columns.quantity) throw new Error('File phải có cột Tên hàng và Số lượng khai báo.');
   const lines = [];
-  for (const row of sourceRows.slice(headerIndex + 1)) {
-    const read = key => columns[key] ? String(row.values[columns[key] - 1] || '').trim() : '';
-    const name = read('name'), quantity = read('quantity');
-    if (!name || !quantity || /tổng cộng|total|tên hàng|tên sản phẩm/i.test(name) || /số lượng|quantity/i.test(quantity)) continue;
-    const details = [[name, ''], [read('usage'), 'Công dụng'], [read('material'), 'Chất liệu'], [read('brand'), 'Nhãn hiệu'], [read('model'), 'Model'], [read('weight'), 'Trọng lượng'], [read('specs'), 'Thông số']].filter(([value]) => value).map(([value, label]) => label ? `${label}: ${value}` : value);
-    lines.push({ sourceRow: row.number, model: read('model'), name, description: details.join('. '), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note') });
+  const patterns = { model: [/^mã hàng/, /mã sản phẩm/, /model/, /型号/], brand: [/nhãn hiệu/, /thương hiệu/, /品牌/], name: [/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/, /mô tả sản phẩm/, /产品说明/], usage: [/công dụng/, /cách sử dụng/, /使用用途/], material: [/chất liệu/, /材料/], weight: [/trọng lượng/, /số kg/, /重量/], size: [/kích thước/, /尺寸/], specs: [/công suất/, /điện áp/, /thông số/], packages: [/số kiện/, /số lượng thùng/, /总件数/], perPackage: [/sản phẩm.*kiện/, /数量.*件/], quantity: [/số lượng khai báo/, /sl khai/, /số lượng.*cái/, /总数量/, /^số lượng/], unit: [/đơn vị.*khai/, /^đvt/, /đơn vị/], price: [/giá sản phẩm/, /giá hđ/, /đơn giá/, /价格/], note: [/ghi chú/, /note/, /笔记/], hs: [/mã hs/, /^hs$/] };
+  for (const sheet of sheets) {
+    const headerIndex = sheet.rows.findIndex(row => { const text = row.values.join(' ').toLocaleLowerCase('vi-VN'); return patterns.name.some(pattern => pattern.test(text)) && patterns.quantity.some(pattern => pattern.test(text)); });
+    if (headerIndex < 0) continue;
+    const header = sheet.rows[headerIndex], secondary = sheet.rows[headerIndex + 1] || { values: [] }, columnCount = Math.max(header.values.length, secondary.values.length);
+    const headers = Array.from({ length: columnCount }, (_, index) => `${header.values[index] || ''} ${secondary.values[index] || ''}`.toLocaleLowerCase('vi-VN'));
+    const columns = Object.fromEntries(Object.entries(patterns).map(([key, list]) => [key, headers.findIndex(text => list.some(pattern => pattern.test(text))) + 1]));
+    if (!columns.name || !columns.quantity) continue;
+    for (const row of sheet.rows.slice(headerIndex + 1)) {
+      const read = key => columns[key] ? String(row.values[columns[key] - 1] || '').trim() : '';
+      const name = read('name'), quantity = read('quantity');
+      if (!name || !quantity || /tổng cộng|total|tên hàng|tên sản phẩm|mô tả sản phẩm/i.test(name) || /số lượng|quantity/i.test(quantity)) continue;
+      const extraFields = [[read('model'), 'Model / Mã sản phẩm'], [read('usage'), 'Công dụng'], [read('material'), 'Chất liệu'], [read('brand'), 'Nhãn hiệu'], [read('weight'), 'Trọng lượng'], [read('specs'), 'Thông số kỹ thuật'], [read('hs'), 'Mã HS']].filter(([value]) => value).map(([value, label]) => ({ id: crypto.randomUUID(), label, value }));
+      const details = [[name, ''], ...extraFields.map(field => [field.value, field.label])].map(([value, label]) => label ? `${label}: ${value}` : value).filter(Boolean);
+      lines.push({ sourceRow: row.number, sheetName: sheet.name, model: read('model'), name, description: details.join('. '), packageCount: read('packages'), productsPerPackage: read('perPackage'), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note'), extraFields });
+      if (lines.length >= 300) break;
+    }
     if (lines.length >= 300) break;
   }
   if (!lines.length) throw new Error('Không tìm thấy dòng sản phẩm hợp lệ trong file Excel.');
-  return { lines, sheetName, imagesSkipped: true };
+  return { lines, sheetName: sheets.length > 1 ? `${sheets.length} sheet` : sheets[0]?.name || 'Sheet1', imagesSkipped: true };
 }
 
 function users() {
@@ -1163,7 +1166,7 @@ http.createServer(async (req, res) => {
         const draft = action === 'save_sale_draft';
         if (!draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã gửi và đang bị khóa. Hãy tạo yêu cầu sửa đổi.' });
         if (draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã khóa, không thể lưu nháp.' });
-        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 200), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 500000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
+        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 200), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), extraFields: Array.isArray(line?.extraFields) ? line.extraFields.slice(0, 30).map(field => ({ id: String(field?.id || crypto.randomUUID()), label: String(field?.label || '').trim().slice(0, 80), value: String(field?.value || '').trim().slice(0, 1000) })).filter(field => field.label) : [], images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 500000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
         if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
         const before = { saleProductLines: shipment.saleProductLines };
         const from = shipment.status; shipment.saleProductLines = productLines;
@@ -1302,6 +1305,7 @@ http.createServer(async (req, res) => {
       const encodeForSrcdoc = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
       const sessionBridge = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'live-session-bridge.js'), 'utf8'));
       const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
+      const saleSupplementWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'sale-supplement-workspace.js'), 'utf8'));
       const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
       const customsDocumentsWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'customs-documents-workspace.js'), 'utf8'));
       const warehouseWorkspace = canImportCustomsWarehouse(user) ? encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'warehouse-workspace.js'), 'utf8')) : '';
@@ -1319,7 +1323,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${saleSupplementWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content
