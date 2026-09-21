@@ -24,14 +24,28 @@
     const date = new Date(value || Date.now());
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
-  const mapLine = (line, index) => ({
-    id: line.id || `sale-${index}`,
-    description: line.description || '', qty: line.declarationQuantity || '', unit: line.declarationUnit || 'PCE',
-    invoicePrice: line.invoicePriceBeforeVat || '', packs: line.packageCount || '', productsPerPack: line.productsPerPackage || '',
-    size: line.productSize || '', note: line.note || '',
-    images: Array.isArray(line.images) ? line.images.filter(image => image?.url).map(image => ({ id: image.id || '', url: image.url, fileName: image.fileName || '', mimeType: image.mimeType || '' })) : [],
-    image: line.images && line.images[0] ? line.images[0].url : ''
-  });
+  const imageMimeType = url => String(url || '').match(/^data:(image\/(?:jpeg|png|webp))/i)?.[1] || 'image/jpeg';
+  const lineImages = line => {
+    const images = Array.isArray(line?.images) ? line.images : [];
+    const normalized = images.filter(image => image?.url).map(image => ({ id: image.id || '', url: String(image.url), fileName: image.fileName || '', mimeType: image.mimeType || imageMimeType(image.url) }));
+    if (normalized.length) return normalized;
+    const legacy = line?.image;
+    if (typeof legacy === 'string' && legacy) return [{ id: '', url: legacy, fileName: '', mimeType: imageMimeType(legacy) }];
+    if (legacy?.data) return [{ id: '', url: String(legacy.data), fileName: legacy.name || '', mimeType: imageMimeType(legacy.data) }];
+    return [];
+  };
+  const mapLine = (line, index) => {
+    const images = lineImages(line);
+    return {
+      id: line.id || `sale-${index}`,
+      description: line.description || '', qty: line.declarationQuantity || '', unit: line.declarationUnit || 'PCE',
+      invoicePrice: line.invoicePriceBeforeVat || '', packs: line.packageCount || '', productsPerPack: line.productsPerPackage || '',
+      size: line.productSize || '', note: line.note || '', images,
+      // The original popup expects { name, data }; keep this compatibility
+      // field while `images` remains the canonical API value.
+      image: images[0] ? { name: images[0].fileName || 'Ảnh hàng', data: images[0].url } : null
+    };
+  };
   const mapCustomsLine = (line, index) => ({
     id: line.id || `customs-${index}`, en: line.englishName || '', vi: line.goodsDescription || '', note: line.note || '',
     invoicePrice: line.invoicePriceBeforeTax || '', hs: line.hsCode || '', qty1: line.quantity1 || '', unit1: line.unit1 || '',
@@ -45,6 +59,7 @@
   // and the detailed declaration rows in sync after a declaration is saved.
   const mapRow = row => {
     const customsLines = (row.customsLines || []).map(mapCustomsLine);
+    const saleProductLines = (row.saleProductLines || []).map(mapLine);
     const firstCustomsLine = customsLines[0] || null;
     const latestCustomerChange = [...(row.history || [])].reverse().find(item => item.action === 'customer_requests_edit');
     const customs = firstCustomsLine ? {
@@ -61,10 +76,11 @@
     return {
       _id: row.id, code: row.cargoCode || '', lot: row.lotCode || '', packs: Number(row.packageCount || 0), name: row.productName || '',
       customer: row.customerCode || '', owner: row.ownerName || '', sale: row.saleOwner || '', team: row.saleTeam || '',
-      accounting: row.accountant || '', operationDate: row.operationDate || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0), photos: 0,
+      accounting: row.accountant || '', operationDate: row.operationDate || '', kg: Number(row.weightKg || 0), m3: Number(row.volumeM3 || 0),
+      photos: saleProductLines.reduce((total, line) => total + line.images.length, 0),
       docs: row.documentStatus || 'Chưa kiểm tra', status: status(row.status),
       _status: row.status, saleLockedAt: row.saleLockedAt || '', customsLockedAt: row.customsLockedAt || '',
-      saleInfo: { productLines: (row.saleProductLines || []).map(mapLine) },
+      saleInfo: { productLines: saleProductLines },
       customsLines,
       customs,
       customerChangeNote: latestCustomerChange?.content || '',
@@ -104,12 +120,35 @@
     }
     return '';
   }
-  function saleLines(form) {
-    return [...form.querySelectorAll('[data-line], [data-sale-row], .cf-product-row, .cf-sale-row')].map((row, index) => ({
-      id: row.dataset.line || row.dataset.saleRow || `sale-${index}`, description: field(row, 'description'), packageCount: field(row, 'packs'),
-      productsPerPackage: field(row, 'productsPerPack'), productSize: field(row, 'size'), declarationQuantity: field(row, 'qty'),
-      declarationUnit: field(row, 'unit'), invoicePriceBeforeVat: field(row, 'invoicePrice'), note: field(row, 'note'), images: []
-    })).filter(line => line.description);
+  async function compactSaleImage(image) {
+    if (!image?.url || !String(image.url).startsWith('data:image/') || String(image.url).length <= 250000) return image;
+    const source = await new Promise((resolve, reject) => {
+      const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error('Không thể xử lý ảnh hàng đã chọn.')); element.src = image.url;
+    });
+    const ratio = Math.min(1, 600 / Math.max(source.width, source.height));
+    const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(source.width * ratio)); canvas.height = Math.max(1, Math.round(source.height * ratio));
+    const draw = () => canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    draw(); let url = canvas.toDataURL('image/jpeg', .65);
+    if (url.length > 250000) { const compactRatio = Math.sqrt(250000 / url.length); canvas.width = Math.max(1, Math.round(canvas.width * compactRatio)); canvas.height = Math.max(1, Math.round(canvas.height * compactRatio)); draw(); url = canvas.toDataURL('image/jpeg', .55); }
+    if (url.length > 300000) throw new Error('Ảnh quá chi tiết, vui lòng chọn ảnh dung lượng thấp hơn.');
+    return { ...image, url, mimeType: 'image/jpeg' };
+  }
+  async function saleLines(form) {
+    const shipment = selectedShipment();
+    const rows = [...form.querySelectorAll('[data-line], [data-sale-row], .cf-product-row, .cf-sale-row')];
+    return (await Promise.all(rows.map(async (row, index) => {
+      const previewUrl = row.querySelector('.cf-line-image-preview img')?.getAttribute('src') || '';
+      const existing = lineImages(shipment?.saleInfo?.productLines?.[index]);
+      const images = previewUrl && !existing.some(image => image.url === previewUrl)
+        ? [{ id: `image-${Date.now()}-${index}`, url: previewUrl, fileName: 'Ảnh hàng', mimeType: imageMimeType(previewUrl) }, ...existing]
+        : existing;
+      return {
+        id: row.dataset.line || row.dataset.saleRow || `sale-${index}`, description: field(row, 'description'), packageCount: field(row, 'packs'),
+        productsPerPackage: field(row, 'productsPerPack'), productSize: field(row, 'size'), declarationQuantity: field(row, 'qty'),
+        declarationUnit: field(row, 'unit'), invoicePriceBeforeVat: field(row, 'invoicePrice'), note: field(row, 'note'),
+        images: (await Promise.all(images.slice(0, 10).map(compactSaleImage))).filter(image => image?.url)
+      };
+    }))).filter(line => line.description);
   }
   function customsLines(form) {
     return [...form.querySelectorAll('[data-custom-line]')].map((row, index) => {
@@ -443,7 +482,7 @@
       if (!shipment) throw new Error('Không xác định được mã hàng đang xử lý.');
       if (form.id === 'cf-sale-form') {
         if (!allowSale()) throw new Error('Bạn không có quyền cập nhật Thông tin Sale.');
-        const lines = saleLines(form); if (!lines.length) throw new Error('Cần có ít nhất một dòng sản phẩm có mô tả.');
+        const lines = await saleLines(form); if (!lines.length) throw new Error('Cần có ít nhất một dòng sản phẩm có mô tả.');
         await request(draft ? 'save_sale_draft' : 'save_sale', shipment._id, { productLines: lines });
       } else {
         if (!allowCustoms()) throw new Error('Chỉ bộ phận Khai báo HQ được lên list.');

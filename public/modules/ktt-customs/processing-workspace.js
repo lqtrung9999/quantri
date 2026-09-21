@@ -397,7 +397,7 @@
     if (!custom?.trim()) { select.value = 'Cái'; return; }
     const option = document.createElement('option'); option.value = custom.trim(); option.textContent = custom.trim(); option.selected = true;
     select.insertBefore(option, select.lastElementChild);
-  });
+  }, true);
   function openWorkspace() {
     originalContent.hidden = true; workspace.hidden = false; renderRate();
     navButtons.forEach(button => button.classList.remove('active')); processingButton?.classList.add('active'); render();
