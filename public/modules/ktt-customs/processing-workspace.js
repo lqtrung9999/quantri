@@ -227,24 +227,27 @@
   }
   function parseRowImages(row) { try { return JSON.parse(row?.dataset.saleImages || '[]'); } catch { return []; } }
   function updateImageCell(row, editable = true) { const cell = row.querySelector('.xp-image-cell'); if (!cell) return; cell.outerHTML = imageCell(parseRowImages(row), editable); }
+  async function prepareSaleImage(file) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) throw new Error(`${file.name}: chỉ nhận JPG, PNG hoặc WebP tối đa 8 MB.`);
+    const source = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error(`Không thể đọc ảnh ${file.name}.`)); reader.readAsDataURL(file); });
+    const image = await new Promise((resolve, reject) => { const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error(`Không thể xử lý ảnh ${file.name}.`)); element.src = source; });
+    const ratio = Math.min(1, 600 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * ratio)); canvas.height = Math.max(1, Math.round(image.height * ratio));
+    const draw = () => canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    draw(); let url = canvas.toDataURL('image/jpeg', .65);
+    if (url.length > 250000) { const compactRatio = Math.sqrt(250000 / url.length); canvas.width = Math.max(1, Math.round(canvas.width * compactRatio)); canvas.height = Math.max(1, Math.round(canvas.height * compactRatio)); draw(); url = canvas.toDataURL('image/jpeg', .55); }
+    if (url.length > 300000) throw new Error(`${file.name}: ảnh quá chi tiết, vui lòng chọn ảnh dung lượng thấp hơn.`);
+    return { id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, url, fileName: file.name, mimeType: 'image/jpeg' };
+  }
   async function uploadSaleImages(card, row, files) {
     const selected = [...files].slice(0, Math.max(0, 10 - parseRowImages(row).length));
     if (!selected.length) { alert('Mỗi dòng sản phẩm tối đa 10 ảnh.'); return; }
     const input = row.querySelector('.xp-sale-image-input'); if (input) input.disabled = true;
     try {
       const images = parseRowImages(row);
-      for (const file of selected) {
-        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) throw new Error(`${file.name}: chỉ nhận JPG, PNG hoặc WebP tối đa 8 MB.`);
-        if (input) input.parentElement.firstChild.textContent = `Đang tải ${images.length + 1}/${images.length + selected.length}…`;
-        const begin = await fetch('/api/customs-sale-images/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipmentId: card.dataset.id, fileName: file.name, fileSize: file.size, mimeType: file.type }) });
-        const started = await begin.json().catch(() => ({})); if (!begin.ok) throw new Error(started.error || 'Không thể bắt đầu tải ảnh.');
-        const chunkSize = started.chunkSize || 768 * 1024;
-        for (let offset = 0, index = 0; offset < file.size; offset += chunkSize, index += 1) { const end = Math.min(offset + chunkSize, file.size); const response = await fetch(`/api/customs-sale-images/chunk?id=${encodeURIComponent(started.uploadId)}&index=${index}`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file.slice(offset, end) }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'Không thể tải ảnh.'); } }
-        const done = await fetch('/api/customs-sale-images/finish', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uploadId: started.uploadId }) });
-        const payload = await done.json().catch(() => ({})); if (!done.ok || !payload.image?.url) throw new Error(payload.error || 'Không thể hoàn tất tải ảnh.'); images.push(payload.image);
-      }
+      for (const file of selected) { if (input) input.parentElement.firstChild.textContent = `Đang chuẩn bị ${images.length + 1}/${images.length + selected.length}…`; images.push(await prepareSaleImage(file)); }
       row.dataset.saleImages = JSON.stringify(images); updateImageCell(row); workspace.dataset.dirty = '1';
-    } catch (error) { alert(error.message || 'Không thể tải ảnh hàng.'); }
+    } catch (error) { alert(error.message || 'Không thể thêm ảnh hàng.'); }
     finally { const current = row.querySelector('.xp-sale-image-input'); if (current) current.disabled = false; }
   }
   const excelState = { card: null, lines: [], fileName: '', imagesSkipped: true };
