@@ -1224,7 +1224,9 @@ http.createServer(async (req, res) => {
         const prepared = [];
         for (const assignment of assignments) {
           const item = rows.find(row => row.id === String(assignment?.id || ''));
-          if (!item || item.status !== 'ready_for_loading') return send(res, 409, { error: 'Có mã hàng không còn ở trạng thái sẵn sàng xếp xe. Vui lòng cập nhật lại danh sách.' });
+          // Điều vận có thể xếp xe ngay sau khi Sale đã gửi thông tin cho Khai báo.
+          // Không buộc chờ bước Khai báo xác nhận khách; hàng bị trả về Sale vẫn bị loại.
+          if (!item || !['customs_pending', 'customer_confirmation', 'ready_for_loading'].includes(item.status)) return send(res, 409, { error: 'Có mã hàng chưa được Sale gửi cho Khai báo hoặc không còn đủ điều kiện xếp xe. Vui lòng cập nhật lại danh sách.' });
           item.loadingRecords = Array.isArray(item.loadingRecords) ? item.loadingRecords : [];
           const loadedPacks = item.loadingRecords.reduce((sum, entry) => sum + customsNumber(entry.packageCount), 0);
           const loadedM3 = item.loadingRecords.reduce((sum, entry) => sum + customsNumber(entry.volumeM3), 0);
@@ -1242,7 +1244,12 @@ http.createServer(async (req, res) => {
           const totalLoadedPacks = entry.item.loadingRecords.reduce((sum, item) => sum + customsNumber(item.packageCount), 0);
           const totalLoadedM3 = entry.item.loadingRecords.reduce((sum, item) => sum + customsNumber(item.volumeM3), 0);
           const complete = totalLoadedPacks >= customsNumber(entry.item.packageCount) - 0.000001;
-          const from = entry.item.status; entry.item.status = complete ? 'loaded' : 'ready_for_loading'; entry.item.updatedAt = now;
+          const from = entry.item.status;
+          // Với hàng đang chờ Khai báo/khách xác nhận, giữ nguyên luồng xử lý sau khi
+          // xếp xe để Khai báo vẫn tiếp tục làm list. Luồng cũ "sẵn sàng xếp xe" vẫn
+          // chuyển sang "đã xếp" khi bốc đủ hàng.
+          if (entry.item.status === 'ready_for_loading' && complete) entry.item.status = 'loaded';
+          entry.item.updatedAt = now;
           customsHistory(entry.item, user, complete ? 'truck_loaded' : 'truck_partially_loaded', from, entry.item.status, `Bốc ${entry.packageCount} kiện, ${entry.volumeM3} m³ lên xe ${truckCode}, ngày ${loadingDate}.`);
         }
         saveCustomsRows(rows); return send(res, 200, { ok: true, batchId, updated: prepared.length });
@@ -1254,7 +1261,8 @@ http.createServer(async (req, res) => {
         const index = shipment.loadingRecords.findIndex(entry => entry.id === loadingId);
         if (index < 0) return send(res, 404, { error: 'Không tìm thấy lần bốc xe cần hoàn tác.' });
         const [removed] = shipment.loadingRecords.splice(index, 1), from = shipment.status;
-        shipment.status = 'ready_for_loading'; shipment.updatedAt = new Date().toISOString();
+        if (shipment.status === 'loaded') shipment.status = 'ready_for_loading';
+        shipment.updatedAt = new Date().toISOString();
         customsHistory(shipment, user, 'truck_loading_reverted', from, shipment.status, `Trả ${removed.packageCount} kiện, ${removed.volumeM3} m³ từ xe ${removed.truckCode} về danh sách chờ xếp.`);
         saveCustomsRows(rows); return send(res, 200, { record: shipment });
       }

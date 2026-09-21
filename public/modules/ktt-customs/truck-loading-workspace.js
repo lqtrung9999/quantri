@@ -11,11 +11,14 @@
   const loadedM3 = row => (row.loadingRecords || []).reduce((sum, item) => sum + num(item.volumeM3), 0);
   const remainPacks = row => Math.max(0, num(row.packs) - loadedPacks(row));
   const remainM3 = row => Math.max(0, num(row.m3) - loadedM3(row));
+  // Sale đã gửi thông tin là điều kiện để Điều vận CN xếp xe; không cần chờ
+  // Khai báo xác nhận khách. Hàng bị trả về Sale không nằm trong danh sách này.
+  const canLoad = row => ['customs_pending', 'customer_confirmation', 'ready_for_loading'].includes(row._status);
   const canEdit = () => ['admin', 'truck_planner', 'cn_operations'].includes(window.KTT_CUSTOMS_SESSION?.user?.role);
 
   const workspace = document.createElement('section');
   workspace.id = 'cf-truck-workspace'; workspace.hidden = true;
-  workspace.innerHTML = `<div class="tl-head"><div><h1>Xếp Xe CN</h1><p>Quản lý hàng sẵn sàng, lập danh sách bốc xe và theo dõi lượng hàng còn lại.</p></div><button class="cf-action tl-back">← Khai báo &amp; xếp xe</button></div>
+  workspace.innerHTML = `<div class="tl-head"><div><h1>Xếp Xe CN</h1><p>Sale gửi thông tin cho Khai báo là mã hàng có thể được xếp xe; không cần chờ khách xác nhận.</p></div><button class="cf-action tl-back">← Khai báo &amp; xếp xe</button></div>
     <div class="tl-kpis"><article><span>MÃ CHỜ XẾP</span><b id="tl-ready-count">0</b><small>Đang còn hàng</small></article><article><span>KIỆN CHỜ XẾP</span><b id="tl-ready-packs">0</b><small>Tổng số kiện còn lại</small></article><article><span>KHỐI CHỜ XẾP</span><b id="tl-ready-volume">0 m³</b><small>Căn gọi xe Trung Quốc</small></article><article><span>ĐANG XẾP MỘT PHẦN</span><b id="tl-partial-count">0</b><small>Còn hàng cho chuyến sau</small></article></div>
     <div class="tl-toolbar"><label class="tl-check-all"><input type="checkbox" id="tl-select-all"> Chọn tất cả đang hiển thị</label><input id="tl-search" placeholder="Tìm mã hàng, mã khách, tên hàng, Sale..."><select id="tl-view"><option value="ready">Hàng đang chờ xếp</option><option value="history">Lịch sử đã bốc xe</option><option value="all">Tất cả</option></select><button class="cf-action" id="tl-refresh">↻ Cập nhật</button></div>
     <div class="tl-selection"><span>Đã chọn <b id="tl-selected-count">0</b> mã · <b id="tl-selected-packs">0</b> kiện · <b id="tl-selected-volume">0 m³</b></span><button class="cf-action primary" id="tl-open-plan">Tạo danh sách xếp xe</button></div>
@@ -31,7 +34,7 @@
   function visible() {
     const query = workspace.querySelector('#tl-search').value.trim().toLocaleLowerCase('vi-VN'), view = workspace.querySelector('#tl-view').value;
     return rows().filter(row => {
-      const hasLoading = (row.loadingRecords || []).length > 0, hasRemaining = row._status === 'ready_for_loading' && (remainPacks(row) > 0 || remainM3(row) > 0);
+      const hasLoading = (row.loadingRecords || []).length > 0, hasRemaining = canLoad(row) && (remainPacks(row) > 0 || remainM3(row) > 0);
       if (view === 'ready' && !hasRemaining) return false;
       if (view === 'history' && !hasLoading) return false;
       return !query || `${row.code} ${row.name} ${row.customer} ${row.owner} ${row.sale} ${row.team}`.toLocaleLowerCase('vi-VN').includes(query);
@@ -42,24 +45,24 @@
     return row.loadingRecords.map(entry => `<div class="tl-trip"><b>${esc(entry.truckCode)}</b><span>${esc(entry.loadingDate)} · ${fmt(entry.packageCount)} kiện · ${fmt(entry.volumeM3)} m³</span>${canEdit() ? `<button data-revert="${esc(entry.id)}" data-id="${esc(row._id)}" title="Trả lần bốc này về chờ xếp">Hoàn tác</button>` : ''}</div>`).join('');
   }
   function render() {
-    const ready = rows().filter(row => row._status === 'ready_for_loading' && (remainPacks(row) > 0 || remainM3(row) > 0));
+    const ready = rows().filter(row => canLoad(row) && (remainPacks(row) > 0 || remainM3(row) > 0));
     workspace.querySelector('#tl-ready-count').textContent = ready.length;
     workspace.querySelector('#tl-ready-packs').textContent = fmt(ready.reduce((sum, row) => sum + remainPacks(row), 0));
     workspace.querySelector('#tl-ready-volume').textContent = `${fmt(ready.reduce((sum, row) => sum + remainM3(row), 0))} m³`;
     workspace.querySelector('#tl-partial-count').textContent = ready.filter(row => loadedPacks(row) > 0 || loadedM3(row) > 0).length;
     const list = visible();
-    workspace.querySelector('#tl-body').innerHTML = list.map(row => { const remaining = row._status === 'ready_for_loading' && (remainPacks(row) > 0 || remainM3(row) > 0), partial = remaining && (loadedPacks(row) > 0 || loadedM3(row) > 0); return `<tr><td><input type="checkbox" data-select="${esc(row._id)}" ${selected.has(row._id) ? 'checked' : ''} ${!remaining || !canEdit() ? 'disabled' : ''}></td><td><b>${esc(row.code)}</b></td><td class="tl-left">${esc(row.name || '—')}</td><td class="tl-left"><b>${esc(row.customer || '—')}</b><small>${esc(row.owner || '—')}</small></td><td class="tl-left">${esc(row.sale || '—')}<small>${esc(row.team || '—')}</small></td><td>${esc(row.operationDate || '—')}</td><td>${fmt(row.packs)}</td><td>${fmt(row.m3)}</td><td><b>${fmt(remainPacks(row))}</b></td><td><b>${fmt(remainM3(row))}</b></td><td><span class="tl-status ${partial ? 'partial' : remaining ? 'ready' : 'loaded'}">${partial ? 'Xếp một phần' : remaining ? 'Chưa xếp xe' : 'Đã xếp hết'}</span></td><td class="tl-left">${loadingBadges(row)}</td></tr>`; }).join('') || '<tr><td colspan="12" class="tl-empty">Không có mã hàng phù hợp.</td></tr>';
+    workspace.querySelector('#tl-body').innerHTML = list.map(row => { const remaining = canLoad(row) && (remainPacks(row) > 0 || remainM3(row) > 0), partial = remaining && (loadedPacks(row) > 0 || loadedM3(row) > 0); return `<tr><td><input type="checkbox" data-select="${esc(row._id)}" ${selected.has(row._id) ? 'checked' : ''} ${!remaining || !canEdit() ? 'disabled' : ''}></td><td><b>${esc(row.code)}</b></td><td class="tl-left">${esc(row.name || '—')}</td><td class="tl-left"><b>${esc(row.customer || '—')}</b><small>${esc(row.owner || '—')}</small></td><td class="tl-left">${esc(row.sale || '—')}<small>${esc(row.team || '—')}</small></td><td>${esc(row.operationDate || '—')}</td><td>${fmt(row.packs)}</td><td>${fmt(row.m3)}</td><td><b>${fmt(remainPacks(row))}</b></td><td><b>${fmt(remainM3(row))}</b></td><td><span class="tl-status ${partial ? 'partial' : remaining ? 'ready' : 'loaded'}">${partial ? 'Xếp một phần' : remaining ? 'Chưa xếp xe' : 'Đã xếp hết'}</span></td><td class="tl-left">${loadingBadges(row)}</td></tr>`; }).join('') || '<tr><td colspan="12" class="tl-empty">Không có mã hàng phù hợp.</td></tr>';
     updateSelection();
   }
   function updateSelection() {
-    const picked = rows().filter(row => selected.has(row._id) && row._status === 'ready_for_loading');
+    const picked = rows().filter(row => selected.has(row._id) && canLoad(row));
     workspace.querySelector('#tl-selected-count').textContent = picked.length;
     workspace.querySelector('#tl-selected-packs').textContent = fmt(picked.reduce((sum, row) => sum + remainPacks(row), 0));
     workspace.querySelector('#tl-selected-volume').textContent = `${fmt(picked.reduce((sum, row) => sum + remainM3(row), 0))} m³`;
     workspace.querySelector('#tl-open-plan').disabled = !picked.length || !canEdit();
   }
   function openPlan() {
-    const picked = rows().filter(row => selected.has(row._id) && row._status === 'ready_for_loading'); if (!picked.length) return;
+    const picked = rows().filter(row => selected.has(row._id) && canLoad(row)); if (!picked.length) return;
     workspace.querySelector('#tl-loading-date').value = today();
     workspace.querySelector('.tl-plan-rows').innerHTML = picked.map(row => `<div class="tl-plan-row" data-id="${esc(row._id)}"><div><b>${esc(row.code)}</b><small>Còn ${fmt(remainPacks(row))} kiện · ${fmt(remainM3(row))} m³</small></div><label>Số kiện bốc<input data-packs value="${remainPacks(row)}" inputmode="decimal"></label><label>Số m³ bốc<input data-m3 value="${remainM3(row)}" inputmode="decimal"></label><button data-remove-plan="${esc(row._id)}">Bỏ</button></div>`).join('');
     workspace.querySelector('.tl-plan').hidden = false; updatePlanTotal(); workspace.querySelector('#tl-truck-code').focus();
@@ -79,7 +82,7 @@
   navButtons.filter(button => button !== nav).forEach(button => button.addEventListener('click', () => { workspace.hidden = true; }));
   workspace.querySelector('#tl-search').addEventListener('input', render); workspace.querySelector('#tl-view').addEventListener('change', render);
   workspace.querySelector('#tl-refresh').addEventListener('click', async () => { await window.KTT_CUSTOMS_REFRESH?.(); render(); });
-  workspace.querySelector('#tl-select-all').addEventListener('change', event => { visible().filter(row => row._status === 'ready_for_loading').forEach(row => event.target.checked ? selected.add(row._id) : selected.delete(row._id)); render(); });
+  workspace.querySelector('#tl-select-all').addEventListener('change', event => { visible().filter(canLoad).forEach(row => event.target.checked ? selected.add(row._id) : selected.delete(row._id)); render(); });
   workspace.querySelector('#tl-open-plan').addEventListener('click', openPlan); workspace.querySelector('.tl-plan-close').addEventListener('click', closePlan); workspace.querySelector('.tl-plan-cancel').addEventListener('click', closePlan); workspace.querySelector('#tl-save-plan').addEventListener('click', savePlan);
   workspace.addEventListener('input', event => { if (event.target.matches('[data-packs]')) { const row = event.target.closest('.tl-plan-row'), item = rows().find(entry => entry._id === row.dataset.id), packs = num(event.target.value); if (item && remainPacks(item) > 0) row.querySelector('[data-m3]').value = Math.min(remainM3(item), remainM3(item) * packs / remainPacks(item)).toFixed(2); updatePlanTotal(); } else if (event.target.matches('[data-m3]')) updatePlanTotal(); });
   workspace.addEventListener('click', async event => { const checkbox = event.target.closest('[data-select]'); if (checkbox) { checkbox.checked ? selected.add(checkbox.dataset.select) : selected.delete(checkbox.dataset.select); updateSelection(); return; } const remove = event.target.closest('[data-remove-plan]'); if (remove) { selected.delete(remove.dataset.removePlan); remove.closest('.tl-plan-row').remove(); updatePlanTotal(); return; } const revert = event.target.closest('[data-revert]'); if (revert) { if (!confirm('Trả lần bốc này về danh sách chưa xếp xe?')) return; try { await post({ action: 'revert_loading', id: revert.dataset.id, record: { loadingId: revert.dataset.revert } }); await window.KTT_CUSTOMS_REFRESH?.(); render(); } catch (error) { alert(error.message); } } });
