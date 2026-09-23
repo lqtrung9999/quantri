@@ -68,6 +68,49 @@ function excelCellText(value) {
   if (value.text != null) return String(value.text).trim();
   return '';
 }
+function importedImageType(extension) {
+  const normalizedExtension = String(extension || '').toLowerCase().replace(/^\./, '');
+  if (normalizedExtension === 'jpg' || normalizedExtension === 'jpeg') return { extension: '.jpg', mimeType: 'image/jpeg' };
+  if (normalizedExtension === 'png') return { extension: '.png', mimeType: 'image/png' };
+  if (normalizedExtension === 'webp') return { extension: '.webp', mimeType: 'image/webp' };
+  return null;
+}
+async function saleExcelImagesByRow(filePath) {
+  const imagesBySheetRow = new Map();
+  try {
+    // WorkbookReader đọc dữ liệu chữ tuần tự. ExcelJS chỉ cung cấp vị trí ảnh
+    // khi tải workbook đầy đủ, nên chỉ dùng lượt đọc này để lấy ảnh nhúng.
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+    const media = new Map((workbook.model.media || []).map(item => [item.index, item]));
+    for (const worksheet of workbook.worksheets) {
+      for (const image of worksheet.getImages?.() || []) {
+        const mediaItem = media.get(image.imageId), type = importedImageType(mediaItem?.extension);
+        const buffer = mediaItem?.buffer;
+        if (!type || !buffer || !buffer.length || buffer.length > saleImageMaxBytes) continue;
+        const top = image.range?.tl || {}, bottom = image.range?.br || top;
+        const startRow = Math.max(1, Math.floor(Number(top.nativeRow ?? top.row ?? -1)) + 1);
+        const endRow = Math.max(startRow, Math.floor(Number(bottom.nativeRow ?? bottom.row ?? startRow - 1)) + 1);
+        const startColumn = Math.max(0, Math.floor(Number(top.nativeCol ?? top.col ?? 0)));
+        const sourceImage = { buffer, extension: type.extension, mimeType: type.mimeType, column: startColumn };
+        for (let rowNumber = startRow; rowNumber <= Math.min(endRow, startRow + 40); rowNumber += 1) {
+          const key = `${worksheet.name}:${rowNumber}`;
+          const list = imagesBySheetRow.get(key) || [];
+          list.push(sourceImage); imagesBySheetRow.set(key, list);
+        }
+      }
+    }
+  } catch {
+    // Không chặn việc nhập dữ liệu chữ nếu file dùng định dạng ảnh Excel không hỗ trợ.
+  }
+  return imagesBySheetRow;
+}
+function storeSaleExcelImage(image, sheetName, rowNumber) {
+  const storedName = `${crypto.randomUUID()}${image.extension}`;
+  fs.mkdirSync(saleImagePublicDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(saleImagePublicDir, storedName), image.buffer, { mode: 0o600 });
+  return { id: crypto.randomUUID(), url: `/uploads/customs-sale-images/${storedName}`, fileName: `${sheetName}-row-${rowNumber}${image.extension}`, mimeType: image.mimeType };
+}
 async function parseSaleExcelFile(filePath) {
   const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath, { entries: 'ignore', sharedStrings: 'cache', hyperlinks: 'ignore', styles: 'ignore', worksheets: 'emit' });
   const sheets = [];
@@ -79,6 +122,7 @@ async function parseSaleExcelFile(filePath) {
     }
     if (sourceRows.some(row => row.values.some(Boolean))) sheets.push({ name: worksheet.name || 'Sheet1', rows: sourceRows });
   }
+  const embeddedImages = await saleExcelImagesByRow(filePath);
   const lines = [];
   const patterns = { model: [/^mã hàng/, /mã sản phẩm/, /model/, /型号/], brand: [/nhãn hiệu/, /thương hiệu/, /品牌/], name: [/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/, /mô tả sản phẩm/, /产品说明/], usage: [/công dụng/, /cách sử dụng/, /使用用途/], material: [/chất liệu/, /材料/], weight: [/trọng lượng/, /số kg/, /重量/], size: [/kích thước/, /尺寸/], specs: [/công suất/, /điện áp/, /thông số/], packages: [/số kiện/, /số lượng thùng/, /总件数/], perPackage: [/sản phẩm.*kiện/, /数量.*件/], quantity: [/số lượng khai báo/, /sl khai/, /số lượng.*cái/, /总数量/, /^số lượng/], unit: [/đơn vị.*khai/, /^đvt/, /đơn vị/], price: [/giá sản phẩm/, /giá hđ/, /đơn giá/, /价格/], note: [/ghi chú/, /note/, /笔记/], hs: [/mã hs/, /^hs$/] };
   for (const sheet of sheets) {
@@ -107,13 +151,15 @@ async function parseSaleExcelFile(filePath) {
       // để Sale hiển thị đúng mẫu Excel thay vì bị ép vào biểu mẫu cố định.
       const sourceColumns = headerLabels.map((label, index) => ({ id: `col-${index + 1}`, label: String(label || '').trim() })).filter(column => column.label).slice(0, 30);
       const extraFields = sourceColumns.map((column, index) => ({ id: crypto.randomUUID(), label: column.label, value: String(row.values[index] || '').trim() })).filter(field => field.value);
-      lines.push({ sourceRow: row.number, sheetName: sheet.name, model: read('model'), name, description: name, packageCount: read('packages'), productsPerPackage: read('perPackage'), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note'), sourceColumns, extraFields });
+      const imageColumnIndexes = headerLabels.map((label, index) => /hình ảnh|hinh anh|image|图片/i.test(label) ? index : -1).filter(index => index >= 0);
+      const rowImages = (embeddedImages.get(`${sheet.name}:${row.number}`) || []).filter(image => !imageColumnIndexes.length || imageColumnIndexes.includes(image.column)).slice(0, 10).map(image => storeSaleExcelImage(image, sheet.name, row.number));
+      lines.push({ sourceRow: row.number, sheetName: sheet.name, model: read('model'), name, description: name, packageCount: read('packages'), productsPerPackage: read('perPackage'), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note'), sourceColumns, extraFields, images: rowImages });
       if (lines.length >= 300) break;
     }
     if (lines.length >= 300) break;
   }
   if (!lines.length) throw new Error('Không tìm thấy dòng sản phẩm hợp lệ trong file Excel.');
-  return { lines, sheetName: sheets.length > 1 ? `${sheets.length} sheet` : sheets[0]?.name || 'Sheet1', imagesSkipped: true };
+  return { lines, sheetName: sheets.length > 1 ? `${sheets.length} sheet` : sheets[0]?.name || 'Sheet1', imagesImported: lines.reduce((count, line) => count + line.images.length, 0) };
 }
 
 function users() {

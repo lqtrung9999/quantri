@@ -51,7 +51,8 @@ assert.match(processingWorkspace, /500 \* 1024 \* 1024/, 'Nhập Excel phía tr�
 assert.match(processingWorkspace, /customs-sale-excel\/start[\s\S]*customs-sale-excel\/chunk[\s\S]*customs-sale-excel\/finish/, 'File Excel phải được tải theo từng phần và đọc trên máy chủ');
 assert.doesNotMatch(processingWorkspace, /vendor\/exceljs|20 MB/, 'Không được phụ thuộc bộ đọc Excel trong trình duyệt hoặc giới hạn cũ 20 MB');
 assert.match(serverSource, /ExcelJS\.stream\.xlsx\.WorkbookReader/, 'Máy chủ phải đọc Excel tuần tự để tránh giữ toàn bộ file lớn trong bộ nhớ');
-assert.match(serverSource, /imagesSkipped: true/, 'Máy chủ phải mặc định bỏ qua ảnh trong file Excel');
+assert.match(serverSource, /saleExcelImagesByRow[\s\S]*worksheet\.getImages/, 'Máy chủ phải đọc ảnh nhúng trong file Excel theo từng dòng');
+assert.match(serverSource, /imagesImported:/, 'Máy chủ phải trả số ảnh đã gắn từ file Excel');
 assert.match(processingWorkspace, /xp-clone-line[\s\S]*xp-delete-line/, 'Sale và Khai báo HQ phải có thao tác nhân bản và xóa dòng');
 assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
 assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');

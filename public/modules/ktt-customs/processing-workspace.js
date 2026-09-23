@@ -257,7 +257,7 @@
     } catch (error) { alert(error.message || 'Không thể thêm ảnh hàng.'); }
     finally { const current = row.querySelector('.xp-sale-image-input'); if (current) current.disabled = false; }
   }
-  const excelState = { card: null, lines: [], fileName: '', imagesSkipped: true };
+  const excelState = { card: null, lines: [], fileName: '', imagesImported: 0 };
   async function readSaleExcel(file, onProgress) {
     if (!file || file.size > 500 * 1024 * 1024) throw new Error('File Excel phải nhỏ hơn 500 MB.');
     const shipmentId = excelState.card?.dataset.id;
@@ -280,7 +280,7 @@
   function showExcelPreview() {
     const modal = workspace.querySelector('#xp-excel-modal');
     workspace.querySelector('#xp-excel-file-name').textContent = excelState.fileName;
-    workspace.querySelector('#xp-excel-summary').textContent = `${excelState.lines.length} dòng sẽ được nhập · Ảnh trong file được bỏ qua theo cấu hình.`;
+    workspace.querySelector('#xp-excel-summary').textContent = `${excelState.lines.length} dòng sẽ được nhập · ${excelState.imagesImported ? `Đã nhận ${excelState.imagesImported} ảnh đính kèm theo dòng.` : 'Không có ảnh nhúng theo dòng trong file.'}`;
     workspace.querySelector('#xp-excel-preview-body').innerHTML = excelState.lines.map((line, index) => `<tr><td>${index + 1}</td><td>${esc(line.model)}</td><td>${esc(line.name)}</td><td>${esc(line.description)}</td><td>${esc(line.size)}</td><td>${esc(line.qty)}</td><td>${esc(line.unit)}</td><td>${esc(line.price)}</td></tr>`).join('');
     modal.hidden = false;
   }
@@ -295,6 +295,8 @@
       const index = start + offset, set = (field, value) => { const control = card.querySelector(`[data-sale-field="${field}"][data-row="${index}"]`); if (!control) return; const text = value == null ? '' : String(value); if (control.tagName === 'SELECT') { const option = [...control.options].find(item => item.value.toLocaleLowerCase('vi-VN') === text.toLocaleLowerCase('vi-VN')); if (option) control.value = option.value; else { const custom = document.createElement('option'); custom.value = text; custom.textContent = text; control.insertBefore(custom, control.lastElementChild); control.value = text; } } else control.value = text; };
       set('description', line.description); set('size', line.size); set('qty', fmt(line.qty)); set('unit', line.unit); set('note', line.note);
       const price = n(line.price); set('invoicePrice', currency === 'vnd' ? fmt(price) : currency === 'usd' ? fmt(price * rate) : '');
+      const row = card.querySelectorAll('.xp-table tbody tr')[index];
+      if (row && Array.isArray(line.images)) { row.dataset.saleImages = JSON.stringify(line.images); updateImageCell(row); }
     });
     workspace.dataset.dirty = '1'; calculate(card); card.querySelectorAll('textarea.long-text').forEach(centerLongTextarea);
     workspace.querySelector('#xp-excel-modal').hidden = true; alert(`Đã đưa ${excelState.lines.length} dòng vào Thông tin Sale. Vui lòng kiểm tra các ô còn thiếu trước khi lưu.`);
@@ -378,7 +380,7 @@
     try {
       if (button) { button.disabled = true; button.textContent = 'Đang tải 0%…'; }
       const result = await readSaleExcel(file, percent => { if (button) button.textContent = percent < 100 ? `Đang tải ${percent}%…` : 'Đang đọc dữ liệu…'; });
-      excelState.lines = result.lines; excelState.fileName = `${file.name} · Sheet: ${result.sheetName}`; excelState.imagesSkipped = result.imagesSkipped !== false; showExcelPreview();
+      excelState.lines = result.lines; excelState.fileName = `${file.name} · Sheet: ${result.sheetName}`; excelState.imagesImported = Number(result.imagesImported || 0); showExcelPreview();
     } catch (error) { alert(error.message || 'Không thể đọc file Excel.'); }
     finally { if (button) { button.disabled = false; button.textContent = originalText || '↑ Nhập file Excel'; } }
   });
