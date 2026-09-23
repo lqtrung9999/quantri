@@ -37,6 +37,7 @@ const truckWorkspace = fs.readFileSync('public/modules/ktt-customs/truck-loading
 const serverSource = fs.readFileSync('server.js', 'utf8');
 const warehouseImport = fs.readFileSync('public/warehouse-cn-import.js', 'utf8');
 const processingWorkspace = fs.readFileSync('public/modules/ktt-customs/processing-workspace.js', 'utf8');
+const customsListWorkspace = fs.readFileSync('public/modules/ktt-customs/customs-list-workspace.js', 'utf8');
 const warehouseWorkspace = fs.readFileSync('public/modules/ktt-customs/warehouse-workspace.js', 'utf8');
 assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
@@ -54,6 +55,9 @@ assert.match(serverSource, /ExcelJS\.stream\.xlsx\.WorkbookReader/, 'Máy chủ 
 assert.match(serverSource, /saleExcelImagesByRow[\s\S]*worksheet\.getImages/, 'Máy chủ phải đọc ảnh nhúng trong file Excel theo từng dòng');
 assert.match(serverSource, /imagesImported:/, 'Máy chủ phải trả số ảnh đã gắn từ file Excel');
 assert.match(processingWorkspace, /xp-clone-line[\s\S]*xp-delete-line/, 'Sale và Khai báo HQ phải có thao tác nhân bản và xóa dòng');
+assert.match(customsListWorkspace, /Khai Báo Lên List/, 'Khai báo phải có màn hình riêng chỉ tập trung vào List khai báo');
+assert.match(customsListWorkspace, /Tên tiếng Anh[\s\S]*Mô tả hàng hóa/, 'Màn hình List khai báo phải có cột tiếng Anh và mô tả hàng hóa');
+assert.match(customsListWorkspace, /request_supplement[\s\S]*save_customs_draft[\s\S]*save_customs/, 'Màn hình List khai báo phải giữ yêu cầu Sale bổ sung, lưu nháp và gửi xác nhận');
 assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
 assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');
 assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');
