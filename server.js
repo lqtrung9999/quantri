@@ -35,7 +35,10 @@ const saleExcelMaxBytes = 500 * 1024 * 1024;
 const saleExcelChunkBytes = 1024 * 1024;
 const saleImageUploads = new Map();
 const saleImageUploadDir = path.join(__dirname, 'logs', 'sale-image-uploads');
-const saleImagePublicDir = path.join(publicDir, 'uploads', 'customs-sale-images');
+// User-uploaded product images are data, not release assets.  Keep them outside
+// `public` so deployments cannot remove them with rsync --delete.
+const saleImagePublicDir = path.join(__dirname, 'logs', 'customs-sale-images');
+const legacySaleImagePublicDir = path.join(publicDir, 'uploads', 'customs-sale-images');
 const saleImageMaxBytes = 8 * 1024 * 1024;
 const saleImageChunkBytes = 768 * 1024;
 const crmLarkReporter = createLarkReporter({
@@ -1409,6 +1412,14 @@ http.createServer(async (req, res) => {
   if (isCustomsOnlyUser(user) && (pathname === '/' || pathname === '/index.html')) {
     res.writeHead(302, { Location: '/customs-coordination.html' });
     return res.end();
+  }
+  if (pathname.startsWith('/uploads/customs-sale-images/')) {
+    const fileName = path.basename(pathname);
+    if (!fileName || fileName !== pathname.slice('/uploads/customs-sale-images/'.length)) return send(res, 403, 'Không được phép truy cập tệp này.', 'text/plain; charset=utf-8');
+    const filePath = [saleImagePublicDir, legacySaleImagePublicDir]
+      .map(directory => path.join(directory, fileName))
+      .find(candidate => fs.existsSync(candidate));
+    return fs.readFile(filePath || path.join(saleImagePublicDir, fileName), (error, content) => error ? send(res, error.code === 'ENOENT' ? 404 : 500, error.code === 'ENOENT' ? 'Không tìm thấy ảnh hàng.' : 'Không thể tải ảnh hàng.', 'text/plain; charset=utf-8') : send(res, 200, content, types[path.extname(filePath).toLowerCase()] || 'application/octet-stream'));
   }
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const filePath = path.resolve(publicDir, relativePath);
