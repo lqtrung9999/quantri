@@ -85,16 +85,29 @@ async function parseSaleExcelFile(filePath) {
     const headerIndex = sheet.rows.findIndex(row => { const text = row.values.join(' ').toLocaleLowerCase('vi-VN'); return patterns.name.some(pattern => pattern.test(text)) && patterns.quantity.some(pattern => pattern.test(text)); });
     if (headerIndex < 0) continue;
     const header = sheet.rows[headerIndex], secondary = sheet.rows[headerIndex + 1] || { values: [] }, columnCount = Math.max(header.values.length, secondary.values.length);
-    const headers = Array.from({ length: columnCount }, (_, index) => `${header.values[index] || ''} ${secondary.values[index] || ''}`.toLocaleLowerCase('vi-VN'));
+    const secondaryHeaderCount = secondary.values.filter(value => {
+      const text = String(value || '').toLocaleLowerCase('vi-VN');
+      return Object.values(patterns).some(list => list.some(pattern => pattern.test(text)));
+    }).length;
+    const hasTwoLevelHeader = secondaryHeaderCount >= 2;
+    const headerLabels = Array.from({ length: columnCount }, (_, index) => {
+      const parent = String(header.values[index] || '').trim(), child = hasTwoLevelHeader ? String(secondary.values[index] || '').trim() : '';
+      // File khách thường có tiêu đề 2 tầng: giữ tên cột chi tiết ở hàng dưới,
+      // hoặc ghép cả hai khi cần để không làm mất ngữ nghĩa của cột.
+      return child && child !== parent ? (parent && !/thông tin mô tả|thông tin sản phẩm/i.test(parent) ? `${parent} - ${child}` : child) : parent;
+    });
+    const headers = headerLabels.map(label => label.toLocaleLowerCase('vi-VN'));
     const columns = Object.fromEntries(Object.entries(patterns).map(([key, list]) => [key, headers.findIndex(text => list.some(pattern => pattern.test(text))) + 1]));
     if (!columns.name || !columns.quantity) continue;
     for (const row of sheet.rows.slice(headerIndex + 1)) {
       const read = key => columns[key] ? String(row.values[columns[key] - 1] || '').trim() : '';
       const name = read('name'), quantity = read('quantity');
       if (!name || !quantity || /tổng cộng|total|tên hàng|tên sản phẩm|mô tả sản phẩm/i.test(name) || /số lượng|quantity/i.test(quantity)) continue;
-      const extraFields = [[read('model'), 'Model / Mã sản phẩm'], [read('usage'), 'Công dụng'], [read('material'), 'Chất liệu'], [read('brand'), 'Nhãn hiệu'], [read('weight'), 'Trọng lượng'], [read('specs'), 'Thông số kỹ thuật'], [read('hs'), 'Mã HS']].filter(([value]) => value).map(([value, label]) => ({ id: crypto.randomUUID(), label, value }));
-      const details = [[name, ''], ...extraFields.map(field => [field.value, field.label])].map(([value, label]) => label ? `${label}: ${value}` : value).filter(Boolean);
-      lines.push({ sourceRow: row.number, sheetName: sheet.name, model: read('model'), name, description: details.join('. '), packageCount: read('packages'), productsPerPackage: read('perPackage'), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note'), extraFields });
+      // Không bỏ các cột đặc thù của khách: chúng được giữ nguyên nhãn và giá trị
+      // để Sale hiển thị đúng mẫu Excel thay vì bị ép vào biểu mẫu cố định.
+      const sourceColumns = headerLabels.map((label, index) => ({ id: `col-${index + 1}`, label: String(label || '').trim() })).filter(column => column.label).slice(0, 30);
+      const extraFields = sourceColumns.map((column, index) => ({ id: crypto.randomUUID(), label: column.label, value: String(row.values[index] || '').trim() })).filter(field => field.value);
+      lines.push({ sourceRow: row.number, sheetName: sheet.name, model: read('model'), name, description: name, packageCount: read('packages'), productsPerPackage: read('perPackage'), size: read('size'), qty: quantity, unit: read('unit') || 'Cái', price: read('price'), note: read('note'), sourceColumns, extraFields });
       if (lines.length >= 300) break;
     }
     if (lines.length >= 300) break;
@@ -1166,7 +1179,7 @@ http.createServer(async (req, res) => {
         const draft = action === 'save_sale_draft';
         if (!draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã gửi và đang bị khóa. Hãy tạo yêu cầu sửa đổi.' });
         if (draft && shipment.status !== 'sale_required') return send(res, 409, { error: 'Thông tin Sale đã khóa, không thể lưu nháp.' });
-        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 200), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), extraFields: Array.isArray(line?.extraFields) ? line.extraFields.slice(0, 30).map(field => ({ id: String(field?.id || crypto.randomUUID()), label: String(field?.label || '').trim().slice(0, 80), value: String(field?.value || '').trim().slice(0, 1000) })).filter(field => field.label) : [], images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 500000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
+        const productLines = Array.isArray(record?.productLines) ? record.productLines.slice(0, 300).map((line, index) => ({ id: String(line?.id || crypto.randomUUID()), lineNumber: index + 1, description: String(line?.description || '').trim().slice(0, 200), packageCount: numeric(line?.packageCount), productsPerPackage: String(line?.productsPerPackage || '').trim().slice(0, 100), productSize: String(line?.productSize || '').trim().slice(0, 300), declarationQuantity: numeric(line?.declarationQuantity), declarationUnit: String(line?.declarationUnit || '').trim().slice(0, 30), invoicePriceBeforeVat: String(line?.invoicePriceBeforeVat || '').trim().slice(0, 100), note: String(line?.note || '').trim().slice(0, 1000), sourceColumns: Array.isArray(line?.sourceColumns) ? line.sourceColumns.slice(0, 30).map((column, columnIndex) => ({ id: String(column?.id || `col-${columnIndex + 1}`).slice(0, 80), label: String(column?.label || '').trim().slice(0, 160) })).filter(column => column.label) : [], extraFields: Array.isArray(line?.extraFields) ? line.extraFields.slice(0, 30).map(field => ({ id: String(field?.id || crypto.randomUUID()), label: String(field?.label || '').trim().slice(0, 160), value: String(field?.value || '').trim().slice(0, 1000) })).filter(field => field.label) : [], images: Array.isArray(line?.images) ? line.images.slice(0, 10).map(image => ({ id: String(image?.id || crypto.randomUUID()), url: String(image?.url || '').trim().slice(0, 500000), fileName: String(image?.fileName || '').trim().slice(0, 255), mimeType: String(image?.mimeType || '').trim().slice(0, 100), createdAt: new Date().toISOString() })).filter(image => image.url) : [] })).filter(line => line.description) : [];
         if (!productLines.length) return send(res, 400, { error: 'Cần có ít nhất một dòng sản phẩm có mô tả.' });
         const before = { saleProductLines: shipment.saleProductLines };
         const from = shipment.status; shipment.saleProductLines = productLines;

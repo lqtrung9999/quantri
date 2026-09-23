@@ -40,7 +40,7 @@
       id: line.id || `sale-${index}`,
       description: line.description || '', qty: line.declarationQuantity || '', unit: line.declarationUnit || 'PCE',
       invoicePrice: line.invoicePriceBeforeVat || '', packs: line.packageCount || '', productsPerPack: line.productsPerPackage || '',
-      size: line.productSize || '', note: line.note || '', extraFields: Array.isArray(line.extraFields) ? line.extraFields : [], images,
+      size: line.productSize || '', note: line.note || '', sourceColumns: Array.isArray(line.sourceColumns) ? line.sourceColumns : [], extraFields: Array.isArray(line.extraFields) ? line.extraFields : [], images,
       // The original popup expects { name, data }; keep this compatibility
       // field while `images` remains the canonical API value.
       image: images[0] ? { name: images[0].fileName || 'Ảnh hàng', data: images[0].url } : null
