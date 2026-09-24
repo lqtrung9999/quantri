@@ -1343,7 +1343,7 @@ http.createServer(async (req, res) => {
   }
   if (pathname === '/crm-new.html') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
-    if (isCustomsOnlyUser(user)) { res.writeHead(302, { Location: '/customs-coordination.html' }); return res.end(); }
+    if (isCustomsOnlyUser(user)) { res.writeHead(302, { Location: '/khaibaohaiquan' }); return res.end(); }
     const appVersion = Math.floor(fs.statSync(path.join(publicDir, 'crm-new-app.js')).mtimeMs);
     return fs.readFile(path.join(publicDir, 'crm-new.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải CRM Mới.', 'text/plain; charset=utf-8') : send(res, 200, content.replace('</body>', `<script src="/crm-new-dashboard-link.js?v=${appVersion}"></script><script src="/crm-new-app.js?v=${appVersion}"></script></body>`), 'text/html; charset=utf-8'));
   }
@@ -1358,6 +1358,9 @@ http.createServer(async (req, res) => {
     return fs.readFile(path.join(publicDir, 'customer-management.html'), (error, content) => error ? send(res, 500, 'Không thể tải Quản lý Khách hàng.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
   }
   if (pathname === '/customs-coordination.html') {
+    res.writeHead(302, { Location: '/khaibaohaiquan' }); return res.end();
+  }
+  if (pathname === '/khaibaohaiquan') {
     if (!user) { res.writeHead(302, { Location: '/login' }); return res.end(); }
     if (!canUseCustoms(user)) return send(res, 403, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
     return fs.readFile(path.join(publicDir, 'customs-coordination.html'), 'utf8', (error, content) => error ? send(res, 500, 'Không thể tải Khai Báo HQ.', 'text/plain; charset=utf-8') : send(res, 200, content, 'text/html; charset=utf-8'));
@@ -1412,7 +1415,7 @@ http.createServer(async (req, res) => {
   // Customs declarants work in an isolated module.  Keep the management dashboard
   // and its source data inaccessible even when the root URL is entered manually.
   if (isCustomsOnlyUser(user) && (pathname === '/' || pathname === '/index.html')) {
-    res.writeHead(302, { Location: '/customs-coordination.html' });
+    res.writeHead(302, { Location: '/khaibaohaiquan' });
     return res.end();
   }
   if (pathname.startsWith('/uploads/customs-sale-images/')) {

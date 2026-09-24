@@ -43,7 +43,7 @@ assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
 assert.match(truckWorkspace, /revert_loading/);
 assert.match(serverSource, /function isCustomsOnlyUser\(user\).*customs_declaration.*cn_operations/, 'Điều vận Trang phải bị giới hạn trong phân hệ Khai Báo HQ');
-assert.match(serverSource, /isCustomsOnlyUser\(user\).*Location: '\/customs-coordination\.html'/, 'Tài khoản giới hạn phải được chuyển thẳng vào Khai Báo HQ');
+assert.match(serverSource, /isCustomsOnlyUser\(user\).*Location: '\/khaibaohaiquan'/, 'Tài khoản giới hạn phải được chuyển thẳng vào Khai Báo HQ');
 assert.match(serverSource, /duplicateCodes: existingCodes/, 'Máy chủ phải từ chối mã hàng đã tồn tại');
 assert.match(warehouseImport, /Mã đã có trên hệ thống/, 'Trang nhập kho phải cảnh báo mã hàng đã tồn tại');
 assert.match(truckWorkspace, /cn_operations/, 'Điều vận Trang phải được thao tác Xếp Xe CN');
