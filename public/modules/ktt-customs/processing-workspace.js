@@ -90,7 +90,7 @@
   }
   function imageCell(images, editable) {
     const thumbs = images.length ? images.map((image, index) => `<a class="xp-image-thumb" href="${esc(image.url)}" target="_blank" rel="noopener"><img src="${esc(image.url)}" alt="Ảnh hàng ${index + 1}"></a>${editable ? `<button type="button" class="xp-image-remove" data-image-index="${index}" aria-label="Xóa ảnh ${index + 1}">×</button>` : ''}`).join('') : '<span class="xp-image-empty">Chưa có ảnh</span>';
-    return `<div class="xp-image-cell"><div class="xp-image-list">${thumbs}</div>${editable ? '<label class="xp-image-upload">＋ Thêm ảnh<input class="xp-sale-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><small>JPG, PNG hoặc WebP · tối đa 8 MB/ảnh</small>' : ''}</div>`;
+    return `<div class="xp-image-cell"><div class="xp-image-list">${thumbs}</div>${editable ? '<label class="xp-image-upload">＋ Thêm ảnh<input class="xp-sale-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><small>JPG, PNG hoặc WebP · tối đa 100 MB/ảnh</small>' : ''}</div>`;
   }
   function extraInfo(fields) {
     const items = Array.isArray(fields) ? fields.filter(field => field?.label && field?.value) : [];
@@ -235,7 +235,7 @@
   function parseRowImages(row) { try { return JSON.parse(row?.dataset.saleImages || '[]'); } catch { return []; } }
   function updateImageCell(row, editable = true) { const cell = row.querySelector('.xp-image-cell'); if (!cell) return; cell.outerHTML = imageCell(parseRowImages(row), editable); }
   async function prepareSaleImage(file) {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) throw new Error(`${file.name}: chỉ nhận JPG, PNG hoặc WebP tối đa 8 MB.`);
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 100 * 1024 * 1024) throw new Error(`${file.name}: chỉ nhận JPG, PNG hoặc WebP tối đa 100 MB.`);
     const source = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error(`Không thể đọc ảnh ${file.name}.`)); reader.readAsDataURL(file); });
     const image = await new Promise((resolve, reject) => { const element = new Image(); element.onload = () => resolve(element); element.onerror = () => reject(new Error(`Không thể xử lý ảnh ${file.name}.`)); element.src = source; });
     const ratio = Math.min(1, 600 / Math.max(image.width, image.height));

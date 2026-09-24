@@ -10,7 +10,7 @@
   const imageCell = (row, editable) => {
     const images = imagesFor(row);
     const thumbs = images.length ? images.map((image, index) => `<a class="xp-photo-thumb" href="${esc(image.url)}" target="_blank" rel="noopener"><img src="${esc(image.url)}" alt="Ảnh hàng ${index + 1}"></a>${editable ? `<button class="xp-photo-remove" type="button" data-photo-index="${index}" aria-label="Xóa ảnh">×</button>` : ''}`).join('') : '<span>Chưa có ảnh</span>';
-    return `<td class="pin xp-photo-cell"><div class="xp-photo-list">${thumbs}</div>${editable ? '<label class="xp-photo-add">＋ Thêm ảnh<input class="xp-row-image" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><small>JPG/PNG/WebP · mỗi ảnh tối đa 8 MB</small>' : ''}</td>`;
+    return `<td class="pin xp-photo-cell"><div class="xp-photo-list">${thumbs}</div>${editable ? '<label class="xp-photo-add">＋ Thêm ảnh<input class="xp-row-image" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><small>JPG/PNG/WebP · mỗi ảnh tối đa 100 MB</small>' : ''}</td>`;
   };
   const paint = () => workspace.querySelectorAll('.xp-card:not(.xp-confirm-card)').forEach(card => {
     const item = itemFor(card), rows = [...card.querySelectorAll('.xp-table tbody tr')];
@@ -25,7 +25,7 @@
     });
   });
   async function compress(file) {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 8 * 1024 * 1024) throw new Error(`${file.name}: chỉ nhận JPG, PNG hoặc WebP tối đa 8 MB.`);
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 100 * 1024 * 1024) throw new Error(`${file.name}: chỉ nhận JPG, PNG hoặc WebP tối đa 100 MB.`);
     const source = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
     const image = await new Promise((resolve, reject) => { const element = new Image(); element.onload = () => resolve(element); element.onerror = reject; element.src = source; });
     const ratio = Math.min(1, 720 / Math.max(image.width, image.height)); const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.width * ratio)); canvas.height = Math.max(1, Math.round(image.height * ratio));

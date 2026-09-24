@@ -39,10 +39,9 @@ const saleImageUploadDir = path.join(__dirname, 'logs', 'sale-image-uploads');
 // `public` so deployments cannot remove them with rsync --delete.
 const saleImagePublicDir = path.join(__dirname, 'logs', 'customs-sale-images');
 const legacySaleImagePublicDir = path.join(publicDir, 'uploads', 'customs-sale-images');
-const saleImageMaxBytes = 8 * 1024 * 1024;
-// File Excel của khách đôi khi chứa ảnh gốc chất lượng cao. Cho phép ngưỡng
-// lớn hơn khi ảnh đã nằm trong workbook, còn ảnh tải thủ công vẫn giữ 8 MB.
-const saleExcelEmbeddedImageMaxBytes = 20 * 1024 * 1024;
+const saleImageMaxBytes = 100 * 1024 * 1024;
+// Ảnh nhập trực tiếp và ảnh nhúng trong Excel dùng cùng một ngưỡng lưu trữ.
+const saleExcelEmbeddedImageMaxBytes = saleImageMaxBytes;
 const saleImageChunkBytes = 768 * 1024;
 const crmLarkReporter = createLarkReporter({
   directory: path.join(__dirname, 'crm-new-lark-private'),
@@ -857,7 +856,7 @@ http.createServer(async (req, res) => {
       if (!(user.role === 'admin' || managesShipment || (user.role === 'sale' && owns)) || shipment.status !== 'sale_required') return send(res, 403, { error: 'Chỉ Sale phụ trách được tải ảnh khi hồ sơ đang chờ Sale bổ sung.' });
       const allowed = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }, extension = allowed[String(mimeType || '').toLowerCase()];
       if (!extension) return send(res, 400, { error: 'Chỉ nhận ảnh JPG, PNG hoặc WebP.' });
-      if (!(size > 0) || size > saleImageMaxBytes) return send(res, 400, { error: 'Mỗi ảnh phải nhỏ hơn hoặc bằng 8 MB.' });
+      if (!(size > 0) || size > saleImageMaxBytes) return send(res, 400, { error: 'Mỗi ảnh phải nhỏ hơn hoặc bằng 100 MB.' });
       fs.mkdirSync(saleImageUploadDir, { recursive: true, mode: 0o700 });
       const uploadId = crypto.randomUUID(), filePath = path.join(saleImageUploadDir, `${uploadId}${extension}`);
       fs.writeFileSync(filePath, Buffer.alloc(0), { mode: 0o600 });
