@@ -128,8 +128,13 @@ async function parseSaleExcelFile(filePath) {
   const embeddedImages = await saleExcelImagesByRow(filePath);
   const lines = [];
   const patterns = { model: [/^mã hàng/, /mã sản phẩm/, /model/, /型号/], brand: [/nhãn hiệu/, /thương hiệu/, /品牌/], name: [/tên hàng cần khai/, /tên sản phẩm/, /tên hàng/, /mô tả sản phẩm/, /产品说明/], usage: [/công dụng/, /cách sử dụng/, /使用用途/], material: [/chất liệu/, /材料/], weight: [/trọng lượng/, /số kg/, /重量/], size: [/kích thước/, /尺寸/], specs: [/công suất/, /điện áp/, /thông số/], packages: [/số kiện/, /số lượng thùng/, /总件数/], perPackage: [/sản phẩm.*kiện/, /数量.*件/], quantity: [/số lượng khai báo/, /sl khai/, /số lượng.*cái/, /总数量/, /^số lượng/], unit: [/đơn vị.*khai/, /^đvt/, /đơn vị/], price: [/giá sản phẩm/, /giá hđ/, /đơn giá/, /价格/], note: [/ghi chú/, /note/, /笔记/], hs: [/mã hs/, /^hs$/] };
+  const headerText = value => String(value || '').toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ').trim();
   for (const sheet of sheets) {
-    const headerIndex = sheet.rows.findIndex(row => { const text = row.values.join(' ').toLocaleLowerCase('vi-VN'); return patterns.name.some(pattern => pattern.test(text)) && patterns.quantity.some(pattern => pattern.test(text)); });
+    const headerIndex = sheet.rows.findIndex(row => {
+      const cells = row.values.map(headerText), text = cells.join(' ');
+      const has = list => list.some(pattern => cells.some(cell => pattern.test(cell)) || pattern.test(text));
+      return has(patterns.name) && has(patterns.quantity);
+    });
     if (headerIndex < 0) continue;
     const header = sheet.rows[headerIndex], secondary = sheet.rows[headerIndex + 1] || { values: [] }, columnCount = Math.max(header.values.length, secondary.values.length);
     const secondaryHeaderCount = secondary.values.filter(value => {
@@ -143,7 +148,7 @@ async function parseSaleExcelFile(filePath) {
       // hoặc ghép cả hai khi cần để không làm mất ngữ nghĩa của cột.
       return child && child !== parent ? (parent && !/thông tin mô tả|thông tin sản phẩm/i.test(parent) ? `${parent} - ${child}` : child) : parent;
     });
-    const headers = headerLabels.map(label => label.toLocaleLowerCase('vi-VN'));
+    const headers = headerLabels.map(headerText);
     const columns = Object.fromEntries(Object.entries(patterns).map(([key, list]) => [key, headers.findIndex(text => list.some(pattern => pattern.test(text))) + 1]));
     if (!columns.name || !columns.quantity) continue;
     for (const row of sheet.rows.slice(headerIndex + 1)) {
