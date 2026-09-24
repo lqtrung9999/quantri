@@ -1,0 +1,36 @@
+name: Provision requested P5 staff
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: provision-staff
+  cancel-in-progress: false
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Configure existing SSH connection
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+      - name: Add validated staff without changing existing accounts
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          KTT_BATCH: ${{ secrets.KTT_STAFF_BATCH_52DE }}
+        run: |
+          python3 - <<'PYTHON'
+          import os, subprocess, base64
+          batch = os.environ['KTT_BATCH']
+          if not batch: raise RuntimeError('Missing account batch')
+          script = "const incoming = JSON.parse(Buffer.from('" + base64.b64encode(batch.encode()).decode() + "', 'base64').toString('utf8'));\n" + "const fs = require('fs');\nconst crypto = require('crypto');\nconst file = 'users.json';\nconst original = fs.readFileSync(file, 'utf8');\nconst users = JSON.parse(original);\nconst norm = s => String(s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/Đ/g,'D').replace(/đ/g,'d').toUpperCase().replace(/[^A-Z0-9]/g,'');\nconst managers = users.filter(u => u.active !== false && (u.role === 'sale' || ['TRUONGPHONG','TEAMLEADER','SALESLEADER'].includes(norm(u.role))) && (u.managedTeam === 'P5' || norm(u.sale || u.name) === 'TP5THAM'));\nif (managers.length !== 1) throw Error('Expected exactly one active P5 sales leader; no accounts changed.');\nif (!Array.isArray(incoming) || incoming.length !== 2) throw Error('Expected two accounts.');\nlet created = 0;\nfor (const account of incoming) {\n  if (account.role !== 'sale' || account.team !== 'P5' || !account.sale.startsWith('P5 ') || !/^scrypt\\$[a-f0-9]{32}\\$[a-f0-9]{128}$/.test(account.passwordHash)) throw Error('Invalid staff account.');\n  const existing = users.find(u => norm(u.username) === norm(account.username));\n  if (existing) {\n    if (existing.id === account.id && existing.passwordHash === account.passwordHash && existing.role === 'sale' && existing.sale === account.sale && existing.active !== false) continue;\n    throw Error('Username conflict; no accounts changed.');\n  }\n  if (users.some(u => norm(u.name) === norm(account.name) || [u.sale,...(u.saleAliases || [])].some(s => s && norm(s) === norm(account.sale)))) throw Error('Employee/Sale identity conflict; no accounts changed.');\n  users.push({ ...account, managerId: managers[0].id }); created++;\n}\nif (created) {\n  fs.mkdirSync('logs', { recursive: true, mode: 0o700 });\n  fs.writeFileSync(`logs/users-before-provision-${Date.now()}.json`, original, { mode: 0o600, flag: 'wx' });\n  const temp = `users.json.provision-${crypto.randomUUID()}.tmp`;\n  try {\n    fs.writeFileSync(temp, JSON.stringify(users, null, 2) + '\\n', { mode: 0o600, flag: 'wx' });\n    if (fs.readFileSync(file, 'utf8') !== original) throw Error('Accounts changed concurrently; retry safely.');\n    fs.renameSync(temp, file);\n  } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }\n}\nconsole.log(JSON.stringify({ verified: incoming.length, created, role: 'sale', team: 'P5' }));\n"
+          subprocess.run(['ssh', '-o', 'BatchMode=yes', os.environ['DEPLOY_USER']+'@'+os.environ['DEPLOY_HOST'], 'cd ~/apps/quantri && node'], input=script.encode(), check=True)
+          PYTHON
