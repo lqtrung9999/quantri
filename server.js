@@ -332,7 +332,9 @@ function canonicalUserRole(user) {
 }
 function canUseCustoms(user) { return Boolean(user && customsRoles.has(canonicalUserRole(user))); }
 function isCustomsOnlyUser(user) { return Boolean(user && ['customs_declaration', 'cn_operations'].includes(canonicalUserRole(user))); }
-function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn', 'cn_operations'].includes(user.role)); }
+// Quyền Nhập kho TQ luôn kiểm tra theo vai trò đã chuẩn hóa. Nhờ đó tài khoản
+// Điều vận có tên vai trò cũ/biến thể vẫn không bị chặn nhầm ở bước lưu bảng.
+function canImportCustomsWarehouse(user) { return Boolean(user && ['admin', 'manager', 'warehouse_cn', 'cn_operations'].includes(canonicalUserRole(user))); }
 function customsActorRole(user) {
   if (['admin', 'manager'].includes(user?.role)) return 'manager';
   if (user?.role === 'accountant') return 'accounting';
@@ -1166,11 +1168,12 @@ http.createServer(async (req, res) => {
     if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.' });
     try {
       const { action, id, record } = await readJson(req), rows = customsRows();
-      const privileged = user.role === 'admin';
+      const role = canonicalUserRole(user);
+      const privileged = role === 'admin';
       const team = leaderTeam(user);
-      const canWarehouse = privileged || user.role === 'manager' || user.role === 'warehouse_cn' || user.role === 'cn_operations';
-      const canCustoms = privileged || user.role === 'customs_declaration';
-      const canAccounting = privileged || user.role === 'accountant';
+      const canWarehouse = canImportCustomsWarehouse(user);
+      const canCustoms = privileged || role === 'customs_declaration';
+      const canAccounting = privileged || role === 'accountant';
       if (action === 'update_exchange_rate') {
         if (!canCustoms) return send(res, 403, { error: 'Chỉ Khai báo HQ hoặc Admin được cập nhật tỉ giá.' });
         const rate = numeric(record?.exchangeRateUsdVnd);
