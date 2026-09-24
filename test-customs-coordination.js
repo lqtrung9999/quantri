@@ -40,6 +40,7 @@ const processingWorkspace = fs.readFileSync('public/modules/ktt-customs/processi
 const customsListWorkspace = fs.readFileSync('public/modules/ktt-customs/customs-list-workspace.js', 'utf8');
 const warehouseWorkspace = fs.readFileSync('public/modules/ktt-customs/warehouse-workspace.js', 'utf8');
 const saleSupplementWorkspace = fs.readFileSync('public/modules/ktt-customs/sale-supplement-workspace.js', 'utf8');
+const discussionWorkspace = fs.readFileSync('public/modules/ktt-customs/discussion-workspace.js', 'utf8');
 assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
 assert.match(truckWorkspace, /revert_loading/);
@@ -61,6 +62,8 @@ assert.match(customsListWorkspace, /Tên tiếng Anh[\s\S]*Mô tả hàng hóa/,
 assert.match(customsListWorkspace, /request_supplement[\s\S]*save_customs_draft[\s\S]*save_customs/, 'Màn hình List khai báo phải giữ yêu cầu Sale bổ sung, lưu nháp và gửi xác nhận');
 assert.match(saleSupplementWorkspace, /Cá nhân[\s\S]*Phòng/, 'Trưởng phòng Sale phải có lựa chọn phạm vi Cá nhân hoặc Phòng');
 assert.match(saleSupplementWorkspace, /team === 'p8'[\s\S]*team === 'p5'/, 'Bộ chọn phạm vi chỉ dành cho Tuấn TP8 và Thắm TP5');
+assert.match(discussionWorkspace, /Trao đổi nội bộ theo mã hàng/i, 'Mỗi mã hàng phải có nơi trao đổi chung giữa các bộ phận');
+assert.match(serverSource, /action === 'add_discussion'[\s\S]*discussion_message/, 'Tin nhắn trao đổi phải được lưu và ghi lịch sử theo mã hàng');
 assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
 assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');
 assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');

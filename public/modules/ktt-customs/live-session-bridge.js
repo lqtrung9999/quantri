@@ -85,6 +85,7 @@
       customs,
       customerChangeNote: latestCustomerChange?.content || '',
       supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
+      discussions: (Array.isArray(row.discussions) ? row.discussions : []).map(item => ({ id: item.id || '', actor: item.actor || '', actorRole: item.actorRole || '', content: item.content || '', createdAt: item.createdAt || '' })),
       loadingRecords: Array.isArray(row.loadingRecords) ? row.loadingRecords : [],
       history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])
     };

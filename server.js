@@ -1179,7 +1179,7 @@ http.createServer(async (req, res) => {
             id: crypto.randomUUID(), ...sourceRow, lotCode: '', source: 'warehouse_paste', dataEpoch: customsDataEpoch, status: 'sale_required', documentStatus: 'Chưa kiểm tra',
             createdAt: importedAt, updatedAt: importedAt,
             saleProductLines: [{ id: crypto.randomUUID(), lineNumber: 1, description: sourceRow.productName || '', packageCount: sourceRow.packageCount, productsPerPackage: '', productSize: '', declarationQuantity: 0, declarationUnit: 'PCE', invoicePriceBeforeVat: '', note: '', images: [] }],
-            customsLines: [], supplementRequests: [], history: []
+            customsLines: [], supplementRequests: [], discussions: [], history: []
           };
           customsHistory(createdShipment, user, 'import_warehouse_paste', '', 'sale_required', `Kho TQ nhập từ bảng dán ngày ${sourceRow.operationDate}.`);
           rows.unshift(createdShipment); created += 1;
@@ -1193,6 +1193,18 @@ http.createServer(async (req, res) => {
       }
       const shipment = rows.find(row => row.id === id);
       if (!shipment) return send(res, 404, { error: 'Không tìm thấy mã hàng.' });
+      if (action === 'add_discussion') {
+        if (!customsVisibleRows(user, rows).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền trao đổi trên mã hàng này.' });
+        const content = String(record?.content || '').trim().slice(0, 4000);
+        if (!content) return send(res, 400, { error: 'Vui lòng nhập nội dung trao đổi.' });
+        shipment.discussions = Array.isArray(shipment.discussions) ? shipment.discussions : [];
+        const message = { id: crypto.randomUUID(), actorId: user.id, actor: user.name, actorRole: customsActorRole(user), content, createdAt: new Date().toISOString() };
+        shipment.discussions.push(message);
+        if (shipment.discussions.length > 300) shipment.discussions = shipment.discussions.slice(-300);
+        shipment.updatedAt = message.createdAt;
+        customsHistory(shipment, user, 'discussion_message', shipment.status, shipment.status, `Trao đổi nội bộ: ${content}`);
+        saveCustomsRows(rows); return send(res, 200, { record: shipment, message });
+      }
       if (action === 'update_warehouse') {
         if (!canWarehouse) return send(res, 403, { error: 'Chỉ Điều vận Kho TQ hoặc Quản lý được sửa Mã hàng, KG và M³.' });
         const cargoCode = String(record?.cargoCode || '').trim().slice(0, 80), weightKg = customsNumber(record?.weightKg), volumeM3 = customsNumber(record?.volumeM3);
@@ -1380,6 +1392,7 @@ http.createServer(async (req, res) => {
       const processingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'processing-workspace.js'), 'utf8'));
       const saleSupplementWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'sale-supplement-workspace.js'), 'utf8'));
       const customsListWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'customs-list-workspace.js'), 'utf8'));
+      const discussionWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'discussion-workspace.js'), 'utf8'));
       const imagePreview = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'image-preview.js'), 'utf8'));
       const overviewWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'overview-workspace.js'), 'utf8'));
       const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
@@ -1399,7 +1412,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${saleSupplementWorkspace}&lt;/script&gt;&lt;script&gt;${customsListWorkspace}&lt;/script&gt;&lt;script&gt;${imagePreview}&lt;/script&gt;&lt;script&gt;${overviewWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${saleSupplementWorkspace}&lt;/script&gt;&lt;script&gt;${customsListWorkspace}&lt;/script&gt;&lt;script&gt;${imagePreview}&lt;/script&gt;&lt;script&gt;${overviewWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;script&gt;${discussionWorkspace}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content
