@@ -40,6 +40,9 @@ const saleImageUploadDir = path.join(__dirname, 'logs', 'sale-image-uploads');
 const saleImagePublicDir = path.join(__dirname, 'logs', 'customs-sale-images');
 const legacySaleImagePublicDir = path.join(publicDir, 'uploads', 'customs-sale-images');
 const saleImageMaxBytes = 8 * 1024 * 1024;
+// File Excel của khách đôi khi chứa ảnh gốc chất lượng cao. Cho phép ngưỡng
+// lớn hơn khi ảnh đã nằm trong workbook, còn ảnh tải thủ công vẫn giữ 8 MB.
+const saleExcelEmbeddedImageMaxBytes = 20 * 1024 * 1024;
 const saleImageChunkBytes = 768 * 1024;
 const crmLarkReporter = createLarkReporter({
   directory: path.join(__dirname, 'crm-new-lark-private'),
@@ -90,7 +93,7 @@ async function saleExcelImagesByRow(filePath) {
       for (const image of worksheet.getImages?.() || []) {
         const mediaItem = media.get(image.imageId), type = importedImageType(mediaItem?.extension);
         const buffer = mediaItem?.buffer;
-        if (!type || !buffer || !buffer.length || buffer.length > saleImageMaxBytes) continue;
+        if (!type || !buffer || !buffer.length || buffer.length > saleExcelEmbeddedImageMaxBytes) continue;
         const top = image.range?.tl || {}, bottom = image.range?.br || top;
         const startRow = Math.max(1, Math.floor(Number(top.nativeRow ?? top.row ?? -1)) + 1);
         const endRow = Math.max(startRow, Math.floor(Number(bottom.nativeRow ?? bottom.row ?? startRow - 1)) + 1);
