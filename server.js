@@ -382,6 +382,37 @@ function customsVisibleRows(user, rows) {
   if (user.role === 'sale') return rows.filter(row => sameSale(row.saleOwner, user.sale) || sameSale(row.saleOwner, user.name));
   return rows;
 }
+function discussionRecipientOptions(shipment) {
+  const accounts = users().filter(account => account.active !== false && canUseCustoms({ ...account, role: canonicalUserRole(account) }));
+  const byRole = roles => accounts.filter(account => roles.includes(canonicalUserRole(account)));
+  const sales = byRole(['sale']).filter(account => {
+    const team = leaderTeam(account) || String(account.sale || '').trim().split(/\s+/)[0];
+    return sameSale(shipment.saleOwner, account.sale) || sameSale(shipment.saleOwner, account.name) || (team && normalized(shipment.saleTeam) === normalized(team));
+  });
+  const operations = byRole(['cn_operations', 'truck_planner', 'warehouse_cn']);
+  const customs = byRole(['customs_declaration']);
+  const managers = byRole(['manager', 'admin']);
+  const group = (id, label, members) => ({ id, kind: 'group', label, userIds: [...new Set(members.map(member => member.id))] });
+  const all = [...sales, ...operations, ...customs, ...managers];
+  return [
+    group('all_related', 'Tất cả người liên quan', all),
+    group('sale', shipment.saleTeam ? `Phòng Sale ${shipment.saleTeam}` : 'Sale phụ trách', sales),
+    group('customs', 'Phòng Khai báo HQ', customs),
+    group('operations', 'Điều vận', operations),
+    group('management', 'Giám đốc / Quản lý', managers),
+    ...all.map(account => ({ id: `user:${account.id}`, kind: 'user', label: account.name, userIds: [account.id] }))
+  ].filter(option => option.userIds.length);
+}
+function discussionTargetsUser(message, user) {
+  if (!message || message.actorId === user?.id) return false;
+  return (message.recipients || []).some(recipient => Array.isArray(recipient.userIds) && recipient.userIds.includes(user?.id));
+}
+function discussionUnreadCount(shipment, user) {
+  return (shipment.discussions || []).filter(message => discussionTargetsUser(message, user) && !(message.readBy || []).some(item => item.userId === user.id)).length;
+}
+function discussionUrgentUnreadCount(shipment, user) {
+  return (shipment.discussions || []).filter(message => discussionTargetsUser(message, user) && message.priority === 'urgent' && !(message.readBy || []).some(item => item.userId === user.id)).length;
+}
 function customsHistory(shipment, user, action, fromStatus, toStatus, content) {
   shipment.history = Array.isArray(shipment.history) ? shipment.history : [];
   shipment.history.push({ id: crypto.randomUUID(), actorId: user.id, actorRole: customsActorRole(user), actor: user.name, action, fromStatus, toStatus, content: String(content || '').slice(0, 4000), createdAt: new Date().toISOString() });
@@ -1100,7 +1131,8 @@ http.createServer(async (req, res) => {
       const visibleRows = customsVisibleRows(user, customsRows());
       const warehouseView = query.get('view') === 'warehouse';
       if (warehouseView && !canImportCustomsWarehouse(user)) return send(res, 403, { error: 'Bạn không có quyền quản lý dữ liệu Nhập kho TQ.' });
-      return send(res, 200, { rows: warehouseView ? visibleRows : visibleRows.filter(row => row.status !== 'returned_to_customer'), references, settings: customsSettings(), user: profile(user) });
+      const responseRows = (warehouseView ? visibleRows : visibleRows.filter(row => row.status !== 'returned_to_customer')).map(row => ({ ...row, discussionUnread: discussionUnreadCount(row, user), discussionUrgentUnread: discussionUrgentUnreadCount(row, user) }));
+      return send(res, 200, { rows: responseRows, references, settings: customsSettings(), user: profile(user), discussionRecipients: Object.fromEntries(responseRows.map(row => [row.id, discussionRecipientOptions(row)])) });
     } catch (error) { return send(res, 500, { error: error.message || 'Không thể tải dữ liệu Khai Báo HQ.' }); }
   }
   if (pathname === '/api/customs-documents/export' && req.method === 'GET') {
@@ -1197,13 +1229,29 @@ http.createServer(async (req, res) => {
         if (!customsVisibleRows(user, rows).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền trao đổi trên mã hàng này.' });
         const content = String(record?.content || '').trim().slice(0, 4000);
         if (!content) return send(res, 400, { error: 'Vui lòng nhập nội dung trao đổi.' });
+        const audience = discussionRecipientOptions(shipment);
+        const selectedIds = [...new Set((Array.isArray(record?.recipientIds) ? record.recipientIds : []).map(value => String(value || '')))].slice(0, 20);
+        const recipients = audience.filter(option => selectedIds.includes(option.id)).map(option => ({ id: option.id, kind: option.kind, label: option.label, userIds: option.userIds }));
+        if (!recipients.length) return send(res, 400, { error: 'Hãy chọn ít nhất một cá nhân hoặc phòng cần xử lý.' });
+        const priority = ['normal', 'important', 'urgent'].includes(record?.priority) ? record.priority : 'important';
         shipment.discussions = Array.isArray(shipment.discussions) ? shipment.discussions : [];
-        const message = { id: crypto.randomUUID(), actorId: user.id, actor: user.name, actorRole: customsActorRole(user), content, createdAt: new Date().toISOString() };
+        const message = { id: crypto.randomUUID(), actorId: user.id, actor: user.name, actorRole: customsActorRole(user), content, priority, recipients, readBy: [{ userId: user.id, readAt: new Date().toISOString() }], createdAt: new Date().toISOString() };
         shipment.discussions.push(message);
         if (shipment.discussions.length > 300) shipment.discussions = shipment.discussions.slice(-300);
         shipment.updatedAt = message.createdAt;
         customsHistory(shipment, user, 'discussion_message', shipment.status, shipment.status, `Trao đổi nội bộ: ${content}`);
         saveCustomsRows(rows); return send(res, 200, { record: shipment, message });
+      }
+      if (action === 'mark_discussion_read') {
+        if (!customsVisibleRows(user, rows).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền xem trao đổi trên mã hàng này.' });
+        let changed = false;
+        for (const message of shipment.discussions || []) {
+          if (!discussionTargetsUser(message, user)) continue;
+          message.readBy = Array.isArray(message.readBy) ? message.readBy : [];
+          if (!message.readBy.some(item => item.userId === user.id)) { message.readBy.push({ userId: user.id, readAt: new Date().toISOString() }); changed = true; }
+        }
+        if (changed) saveCustomsRows(rows);
+        return send(res, 200, { ok: true, unread: discussionUnreadCount(shipment, user) });
       }
       if (action === 'update_warehouse') {
         if (!canWarehouse) return send(res, 403, { error: 'Chỉ Điều vận Kho TQ hoặc Quản lý được sửa Mã hàng, KG và M³.' });

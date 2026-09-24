@@ -85,7 +85,8 @@
       customs,
       customerChangeNote: latestCustomerChange?.content || '',
       supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
-      discussions: (Array.isArray(row.discussions) ? row.discussions : []).map(item => ({ id: item.id || '', actor: item.actor || '', actorRole: item.actorRole || '', content: item.content || '', createdAt: item.createdAt || '' })),
+      discussions: (Array.isArray(row.discussions) ? row.discussions : []).map(item => ({ id: item.id || '', actor: item.actor || '', actorRole: item.actorRole || '', content: item.content || '', priority: item.priority || 'normal', recipients: Array.isArray(item.recipients) ? item.recipients : [], readBy: Array.isArray(item.readBy) ? item.readBy : [], createdAt: item.createdAt || '' })),
+      discussionUnread: Number(row.discussionUnread || 0), discussionUrgentUnread: Number(row.discussionUrgentUnread || 0),
       loadingRecords: Array.isArray(row.loadingRecords) ? row.loadingRecords : [],
       history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])
     };
@@ -463,7 +464,7 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'Không thể tải dữ liệu phân quyền.');
     currentUser = payload.user;
-    window.KTT_CUSTOMS_SESSION = { user: currentUser, settings: payload.settings || {} };
+    window.KTT_CUSTOMS_SESSION = { user: currentUser, settings: payload.settings || {}, discussionRecipients: payload.discussionRecipients || {} };
     const data = window.KTT_CUSTOMS_DATA;
     if (!Array.isArray(data)) return setTimeout(refresh, 60);
     data.splice(0, data.length, ...(payload.rows || []).map(mapRow));
