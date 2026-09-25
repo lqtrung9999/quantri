@@ -66,6 +66,9 @@ assert.match(customsListWorkspace, /cl-sale-modal[\s\S]*Kéo chọn trực tiế
 assert.doesNotMatch(customsListWorkspace, /data-sale-copy|cl-copy-all-sale|Sao chép tất cả/, 'Popup Sale không hiển thị nút sao chép gây rối giao diện');
 assert.match(customsListWorkspace, /saleViewColumns[\s\S]*sourceColumns[\s\S]*extraFields[\s\S]*cl-sale-table-wrap/, 'Popup Sale phải giữ đủ các cột gốc, trường thêm và cuộn bảng dài');
 assert.match(customsListWorkspace, /saleColumnClass[\s\S]*cl-sale-column-wide[\s\S]*cl-sale-column-compact/, 'Popup Sale phải mở rộng cột mô tả nhưng giữ cột số gọn');
+assert.match(customsListWorkspace, /th:nth-child\(5\)[\s\S]*560px/, 'Cột mô tả List khai báo phải rộng hơn');
+assert.match(customsListWorkspace, /cl-description-count[\s\S]*200 ký tự/, 'Mô tả List khai báo phải hiển thị cảnh báo vượt 200 ký tự');
+assert.match(customsListWorkspace, /some\(input => String\(input\.value \|\| ''\)\.length > 200\)/, 'Không được lưu mô tả hàng hóa vượt quá 200 ký tự');
 assert.match(customsListWorkspace, /request_supplement[\s\S]*save_customs_draft[\s\S]*save_customs/, 'Màn hình List khai báo phải giữ yêu cầu Sale bổ sung, lưu nháp và gửi xác nhận');
 assert.match(saleSupplementWorkspace, /Cá nhân[\s\S]*Phòng/, 'Trưởng phòng Sale phải có lựa chọn phạm vi Cá nhân hoặc Phòng');
 assert.match(saleSupplementWorkspace, /team === 'p8'[\s\S]*team === 'p5'/, 'Bộ chọn phạm vi chỉ dành cho Tuấn TP8 và Thắm TP5');
