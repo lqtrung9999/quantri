@@ -62,7 +62,8 @@ assert.match(customsListWorkspace, /Khai Báo Lên List/, 'Khai báo phải có 
 assert.match(customsListWorkspace, /Xác Nhận Khách Hàng[\s\S]*KTT_CUSTOMS_OPEN_CUSTOMER_CONFIRMATION/, 'Thanh menu phải có mục Xác Nhận Khách Hàng mở đúng luồng xác nhận');
 assert.match(processingWorkspace, /customerConfirmationMode[\s\S]*customer_confirmation[\s\S]*xp-download-confirm[\s\S]*xp-customer-edit[\s\S]*xp-customer-approve/, 'Mục Xác Nhận Khách Hàng phải chỉ lọc mã chờ xác nhận và giữ đủ thao tác gửi khách');
 assert.match(customsListWorkspace, /Tên tiếng Anh[\s\S]*Mô tả hàng hóa/, 'Màn hình List khai báo phải có cột tiếng Anh và mô tả hàng hóa');
-assert.match(customsListWorkspace, /cl-sale-modal[\s\S]*Sao chép tất cả[\s\S]*Xem thông tin Sale/, 'Mỗi mã trong List khai báo phải có popup xem và sao chép thông tin Sale');
+assert.match(customsListWorkspace, /cl-sale-modal[\s\S]*Kéo chọn trực tiếp[\s\S]*Xem thông tin Sale/, 'Mỗi mã trong List khai báo phải có popup xem thông tin Sale và hỗ trợ sao chép thủ công');
+assert.doesNotMatch(customsListWorkspace, /data-sale-copy|cl-copy-all-sale|Sao chép tất cả/, 'Popup Sale không hiển thị nút sao chép gây rối giao diện');
 assert.match(customsListWorkspace, /saleViewColumns[\s\S]*sourceColumns[\s\S]*extraFields[\s\S]*cl-sale-table-wrap/, 'Popup Sale phải giữ đủ các cột gốc, trường thêm và cuộn bảng dài');
 assert.match(customsListWorkspace, /request_supplement[\s\S]*save_customs_draft[\s\S]*save_customs/, 'Màn hình List khai báo phải giữ yêu cầu Sale bổ sung, lưu nháp và gửi xác nhận');
 assert.match(saleSupplementWorkspace, /Cá nhân[\s\S]*Phòng/, 'Trưởng phòng Sale phải có lựa chọn phạm vi Cá nhân hoặc Phòng');
