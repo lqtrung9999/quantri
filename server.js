@@ -394,10 +394,14 @@ function customsVisibleRows(user, rows) {
 function discussionRecipientOptions(shipment) {
   const accounts = users().filter(account => account.active !== false && canUseCustoms({ ...account, role: canonicalUserRole(account) }));
   const byRole = roles => accounts.filter(account => roles.includes(canonicalUserRole(account)));
-  const sales = byRole(['sale']).filter(account => {
-    const team = leaderTeam(account) || String(account.sale || '').trim().split(/\s+/)[0];
-    return sameSale(shipment.saleOwner, account.sale) || sameSale(shipment.saleOwner, account.name) || (team && normalized(shipment.saleTeam) === normalized(team));
-  });
+  // In a shipment discussion, only the actual Sale owner and that team's
+  // manager are relevant.  Do not list every Sale account in the same team:
+  // it makes @ mentions noisy and sends attention to the wrong people.
+  const sales = byRole(['sale']).filter(account =>
+    sameSale(shipment.saleOwner, account.sale) ||
+    sameSale(shipment.saleOwner, account.name) ||
+    (leaderTeam(account) && normalized(shipment.saleTeam) === normalized(leaderTeam(account)))
+  );
   const operations = byRole(['cn_operations', 'truck_planner', 'warehouse_cn']);
   const customs = byRole(['customs_declaration']);
   const managers = byRole(['manager', 'admin']);
@@ -405,7 +409,7 @@ function discussionRecipientOptions(shipment) {
   const all = [...sales, ...operations, ...customs, ...managers];
   return [
     group('all_related', 'Tất cả người liên quan', all),
-    group('sale', shipment.saleTeam ? `Phòng Sale ${shipment.saleTeam}` : 'Sale phụ trách', sales),
+    group('sale', shipment.saleTeam ? `Sale phụ trách & Trưởng phòng ${shipment.saleTeam}` : 'Sale phụ trách', sales),
     group('customs', 'Phòng Khai báo HQ', customs),
     group('operations', 'Điều vận', operations),
     group('management', 'Giám đốc / Quản lý', managers),

@@ -78,6 +78,7 @@ assert.match(discussionWorkspace, /cf-chat-hub[\s\S]*Trao đổi mã hàng[\s\S]
 assert.match(discussionWorkspace, /openIds\.length >= 2[\s\S]*ch-window\.minimized/, 'Chat nổi phải hỗ trợ tối đa hai cửa sổ và thu nhỏ');
 assert.match(discussionWorkspace, /recipientIds:selected\.map[\s\S]*event\.isComposing/, 'Nhắc đến là tùy chọn và Enter phải không gửi khi đang gõ bộ ký tự');
 assert.match(serverSource, /A normal message belongs to the shared room[\s\S]*priority/, 'Máy chủ phải cho phép tin trao đổi chung không cần chọn người nhận');
+assert.match(serverSource, /only the actual Sale owner and that team's[\s\S]*leaderTeam\(account\)/, 'Nhắc đến chỉ được liệt kê Sale phụ trách và trưởng phòng, không liệt kê cả phòng Sale');
 assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
 assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');
 assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');
