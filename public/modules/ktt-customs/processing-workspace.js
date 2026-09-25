@@ -54,6 +54,7 @@
   const processingButton = navButtons.find(button => /Đơn hàng/i.test(button.textContent || ''));
   const overviewButton = navButtons.find(button => /Tổng quan/i.test(button.textContent || ''));
   const coordinationButton = navButtons.find(button => /Khai báo\s*&\s*xếp xe/i.test(button.textContent || ''));
+  let customerConfirmationMode = false;
   if (processingButton) processingButton.innerHTML = '<span class="ico">▣</span><span>Xử Lý Khai Báo</span>';
   function bindOriginalKpis() {
     const values = ['sale', 'customs', 'customer', 'ready', 'ready'], filter = root.querySelector('#cf-status-filter');
@@ -158,14 +159,14 @@
     // never thrown back to the green Sale columns.
     const scrollPositions = new Map([...workspace.querySelectorAll('.xp-card')].map(card => [card.dataset.id, card.querySelector('.xp-table-wrap')?.scrollLeft || 0]));
     const query = workspace.querySelector('#xp-search').value.trim().toLocaleLowerCase('vi-VN');
-    const wantedStatus = workspace.querySelector('#xp-status').value;
+    const wantedStatus = customerConfirmationMode ? 'customer_confirmation' : workspace.querySelector('#xp-status').value;
     const visible = rows().filter(item => (!wantedStatus || item._status === wantedStatus) && (!query || `${item.code} ${item.name} ${item.customer} ${item.owner} ${item.sale}`.toLocaleLowerCase('vi-VN').includes(query)));
     const counts = Object.fromEntries(['sale_required', 'customs_pending', 'customer_confirmation', 'ready_for_loading'].map(status => [status, rows().filter(item => item._status === status).length]));
     const readyVolume = rows().filter(item => item._status === 'ready_for_loading').reduce((sum, item) => sum + n(item.m3), 0);
     workspace.querySelector('.xp-kpis').innerHTML = `<button data-kpi-status="sale_required"><span>CHỜ SALE BỔ SUNG</span><b>${counts.sale_required}</b><small>Thông tin khách cung cấp</small></button><button data-kpi-status="customs_pending"><span>CHỜ KHAI BÁO HQ</span><b>${counts.customs_pending}</b><small>Đủ thông tin đầu vào</small></button><button data-kpi-status="customer_confirmation"><span>CHỜ KHÁCH XÁC NHẬN</span><b>${counts.customer_confirmation}</b><small>Khai báo đang chốt lại</small></button><button data-kpi-status="ready_for_loading"><span>SẴN SÀNG XẾP XE</span><b>${counts.ready_for_loading}</b><small>Mã hàng đã chốt</small></button><button data-kpi-status="ready_for_loading"><span>KHỐI SẴN SÀNG</span><b>${readyVolume.toLocaleString('vi-VN', { maximumFractionDigits: 2 })} m³</b><small>Mục tiêu xe 78 m³</small></button>`;
     workspace.querySelectorAll('[data-kpi-status]').forEach(button => button.classList.toggle('active', button.dataset.kpiStatus === wantedStatus));
-    workspace.querySelector('#xp-summary').textContent = `${visible.length} mã hàng · ${visible.reduce((sum, item) => sum + Math.max(1, item.saleInfo?.productLines?.length || 0), 0)} dòng sản phẩm`;
-    workspace.querySelector('#xp-list').innerHTML = visible.map(shipmentCard).join('') || '<div class="xp-empty">Không có mã hàng phù hợp.</div>';
+    workspace.querySelector('#xp-summary').textContent = customerConfirmationMode ? `${visible.length} mã hàng đang chờ xác nhận khách hàng` : `${visible.length} mã hàng · ${visible.reduce((sum, item) => sum + Math.max(1, item.saleInfo?.productLines?.length || 0), 0)} dòng sản phẩm`;
+    workspace.querySelector('#xp-list').innerHTML = visible.map(shipmentCard).join('') || `<div class="xp-empty">${customerConfirmationMode ? 'Không có mã hàng chờ xác nhận khách hàng.' : 'Không có mã hàng phù hợp.'}</div>`;
     workspace.querySelectorAll('.xp-card').forEach(card => {
       calculate(card); card.querySelectorAll('[data-customs-field="vi"]').forEach(input => { if (input.value) showDeclaredWarning(input); });
       card.querySelectorAll('textarea.long-text').forEach(centerLongTextarea);
@@ -407,7 +408,14 @@
     const option = document.createElement('option'); option.value = custom.trim(); option.textContent = custom.trim(); option.selected = true;
     select.insertBefore(option, select.lastElementChild);
   }, true);
-  function openWorkspace() {
+  function openWorkspace(options = {}) {
+    customerConfirmationMode = Boolean(options.customerConfirmation);
+    workspace.querySelector('.xp-head h1').textContent = customerConfirmationMode ? 'Xác Nhận Khách Hàng' : 'Xử Lý Khai Báo';
+    workspace.querySelector('.xp-head p').textContent = customerConfirmationMode ? 'Tổng hợp các mã đang chờ khách xác nhận. Có thể tải ảnh gửi khách, ghi nhận yêu cầu chỉnh sửa hoặc xác nhận để chuyển xếp xe.' : 'Bộ phận Khai báo xử lý list từ thông tin Sale đã gửi. Các cột nhận diện được giữ cố định khi cuộn ngang.';
+    workspace.querySelector('.xp-rate').hidden = customerConfirmationMode;
+    workspace.querySelector('.xp-kpis').hidden = customerConfirmationMode;
+    workspace.querySelector('#xp-status').value = customerConfirmationMode ? 'customer_confirmation' : '';
+    workspace.querySelector('#xp-status').disabled = customerConfirmationMode;
     originalContent.hidden = true; workspace.hidden = false; renderRate();
     navButtons.forEach(button => button.classList.remove('active')); processingButton?.classList.add('active'); render();
   }
@@ -422,6 +430,7 @@
   workspace.querySelector('#xp-search').addEventListener('input', render);
   workspace.querySelector('#xp-status').addEventListener('change', render);
   workspace.querySelector('#xp-refresh').addEventListener('click', async () => { if (workspace.dataset.dirty === '1' && !window.confirm('Bạn đang có dữ liệu chưa lưu. Cập nhật sẽ bỏ các thay đổi này. Tiếp tục?')) return; workspace.dataset.dirty = ''; await window.KTT_CUSTOMS_REFRESH?.(); render(); });
+  window.KTT_CUSTOMS_OPEN_CUSTOMER_CONFIRMATION = () => openWorkspace({ customerConfirmation: true });
   window.addEventListener('ktt-customs-refreshed', () => { renderRate(); if (!workspace.hidden && workspace.dataset.dirty !== '1') render(); });
   renderRate();
 

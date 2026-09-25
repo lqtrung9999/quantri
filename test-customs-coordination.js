@@ -59,6 +59,8 @@ assert.match(serverSource, /saleExcelImagesByRow[\s\S]*worksheet\.getImages/, 'M
 assert.match(serverSource, /imagesImported:/, 'Máy chủ phải trả số ảnh đã gắn từ file Excel');
 assert.match(processingWorkspace, /xp-clone-line[\s\S]*xp-delete-line/, 'Sale và Khai báo HQ phải có thao tác nhân bản và xóa dòng');
 assert.match(customsListWorkspace, /Khai Báo Lên List/, 'Khai báo phải có màn hình riêng chỉ tập trung vào List khai báo');
+assert.match(customsListWorkspace, /Xác Nhận Khách Hàng[\s\S]*KTT_CUSTOMS_OPEN_CUSTOMER_CONFIRMATION/, 'Thanh menu phải có mục Xác Nhận Khách Hàng mở đúng luồng xác nhận');
+assert.match(processingWorkspace, /customerConfirmationMode[\s\S]*customer_confirmation[\s\S]*xp-download-confirm[\s\S]*xp-customer-edit[\s\S]*xp-customer-approve/, 'Mục Xác Nhận Khách Hàng phải chỉ lọc mã chờ xác nhận và giữ đủ thao tác gửi khách');
 assert.match(customsListWorkspace, /Tên tiếng Anh[\s\S]*Mô tả hàng hóa/, 'Màn hình List khai báo phải có cột tiếng Anh và mô tả hàng hóa');
 assert.match(customsListWorkspace, /request_supplement[\s\S]*save_customs_draft[\s\S]*save_customs/, 'Màn hình List khai báo phải giữ yêu cầu Sale bổ sung, lưu nháp và gửi xác nhận');
 assert.match(saleSupplementWorkspace, /Cá nhân[\s\S]*Phòng/, 'Trưởng phòng Sale phải có lựa chọn phạm vi Cá nhân hoặc Phòng');
