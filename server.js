@@ -22,7 +22,7 @@ const customsExcelTemplateFile = path.join(publicDir, 'modules', 'ktt-customs', 
 const larkConfigFile = path.join(__dirname, 'lark-config.json');
 const port = Number(process.env.PORT || 3000);
 const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.png': 'image/png', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.pdf': 'application/pdf', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls': 'application/vnd.ms-excel', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.doc': 'application/msword', '.txt': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.svg': 'image/svg+xml' };
 let larkTokenCache = { value: '', expiresAt: 0 };
 let trackingCache = { value: null, expiresAt: 0 };
 let customsWarehouseSyncCache = { expiresAt: 0 };
@@ -43,6 +43,13 @@ const saleImageMaxBytes = 100 * 1024 * 1024;
 // Ảnh nhập trực tiếp và ảnh nhúng trong Excel dùng cùng một ngưỡng lưu trữ.
 const saleExcelEmbeddedImageMaxBytes = saleImageMaxBytes;
 const saleImageChunkBytes = 768 * 1024;
+const chatFileUploads = new Map();
+const chatFileMetadata = new Map();
+const chatFileUploadDir = path.join(__dirname, 'logs', 'customs-chat-uploading');
+const chatFileDir = path.join(__dirname, 'logs', 'customs-chat-files');
+const chatFileMaxBytes = 100 * 1024 * 1024;
+const chatFileChunkBytes = 768 * 1024;
+const chatFileTypes = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.pdf', '.xlsx', '.xls', '.docx', '.doc', '.txt', '.csv']);
 const crmLarkReporter = createLarkReporter({
   directory: path.join(__dirname, 'crm-new-lark-private'),
   readRows: crmNewRows,
@@ -895,6 +902,44 @@ http.createServer(async (req, res) => {
     } catch (error) { return send(res, 400, { error: error.message || 'Không thể hoàn tất tải ảnh.' }); }
     finally { if (upload) { saleImageUploads.delete(uploadId); if (upload.filePath) try { fs.unlinkSync(upload.filePath); } catch {} } }
   }
+  if (pathname === '/api/customs-chat-files/start' && req.method === 'POST') {
+    if (!canUseCustoms(user)) return send(res, user ? 403 : 401, { error: 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.' });
+    try {
+      const { fileName, fileSize, shipmentId, mimeType } = await readJson(req), size = Number(fileSize || 0), shipment = customsRows().find(row => row.id === String(shipmentId || ''));
+      if (!shipment || !customsVisibleRows(user, customsRows()).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền đính kèm tệp cho mã hàng này.' });
+      const extension = path.extname(String(fileName || '')).toLocaleLowerCase('vi-VN');
+      if (!chatFileTypes.has(extension)) return send(res, 400, { error: 'Chỉ hỗ trợ ảnh, video MP4/MOV, PDF, Excel, Word, TXT hoặc CSV.' });
+      if (!(size > 0) || size > chatFileMaxBytes) return send(res, 400, { error: 'Mỗi tệp đính kèm tối đa 100 MB.' });
+      fs.mkdirSync(chatFileUploadDir, { recursive: true, mode: 0o700 });
+      const uploadId = crypto.randomUUID(), filePath = path.join(chatFileUploadDir, `${uploadId}${extension}`);
+      fs.writeFileSync(filePath, Buffer.alloc(0), { mode: 0o600 });
+      chatFileUploads.set(uploadId, { userId: user.id, shipmentId: shipment.id, filePath, extension, fileName: path.basename(String(fileName || 'tep-dinh-kem').replace(/[\\/]/g, '-')).slice(0, 255), mimeType: String(mimeType || types[extension] || 'application/octet-stream').slice(0, 120), expectedSize: size, received: 0, nextIndex: 0, createdAt: Date.now() });
+      return send(res, 200, { uploadId, chunkSize: chatFileChunkBytes });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể bắt đầu tải tệp đính kèm.' }); }
+  }
+  if (pathname === '/api/customs-chat-files/chunk' && req.method === 'PUT') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    const query = new URL(req.url, 'https://dashboard.local').searchParams, upload = chatFileUploads.get(String(query.get('id') || '')), index = Number(query.get('index'));
+    if (!upload || upload.userId !== user.id) return send(res, 404, { error: 'Phiên tải tệp không còn hiệu lực.' });
+    if (index !== upload.nextIndex) return send(res, 409, { error: 'Thứ tự phần tải tệp không hợp lệ.' });
+    try { const chunk = await readRaw(req, chatFileChunkBytes); if (!chunk.length || upload.received + chunk.length > upload.expectedSize) throw new Error('Dung lượng tệp tải lên không hợp lệ.'); fs.appendFileSync(upload.filePath, chunk); upload.received += chunk.length; upload.nextIndex += 1; return send(res, 200, { ok: true, received: upload.received }); }
+    catch (error) { return send(res, 400, { error: error.message || 'Không thể nhận phần tệp.' }); }
+  }
+  if (pathname === '/api/customs-chat-files/finish' && req.method === 'POST') {
+    if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
+    let upload, uploadId = '';
+    try {
+      ({ uploadId } = await readJson(req)); upload = chatFileUploads.get(String(uploadId || ''));
+      if (!upload || upload.userId !== user.id) return send(res, 404, { error: 'Phiên tải tệp không còn hiệu lực.' });
+      if (upload.received !== upload.expectedSize) return send(res, 400, { error: 'Tệp chưa được tải lên đầy đủ.' });
+      fs.mkdirSync(chatFileDir, { recursive: true, mode: 0o700 });
+      const id = crypto.randomUUID(), storedName = `${id}${upload.extension}`, storedPath = path.join(chatFileDir, storedName); fs.renameSync(upload.filePath, storedPath); upload.filePath = '';
+      const attachment = { id, fileName: upload.fileName, mimeType: upload.mimeType, size: upload.expectedSize, url: `/api/customs-chat-files/${storedName}` };
+      chatFileMetadata.set(id, { ...attachment, userId: user.id, shipmentId: upload.shipmentId, storedPath, createdAt: Date.now() });
+      return send(res, 200, { attachment });
+    } catch (error) { return send(res, 400, { error: error.message || 'Không thể hoàn tất tải tệp.' }); }
+    finally { if (upload) { chatFileUploads.delete(String(uploadId || '')); if (upload.filePath) try { fs.unlinkSync(upload.filePath); } catch {} } }
+  }
   if (pathname === '/api/customs-sale-excel/start' && req.method === 'POST') {
     if (!user) return send(res, 401, { error: 'Vui lòng đăng nhập.' });
     try {
@@ -1242,7 +1287,8 @@ http.createServer(async (req, res) => {
       if (action === 'add_discussion') {
         if (!customsVisibleRows(user, rows).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền trao đổi trên mã hàng này.' });
         const content = String(record?.content || '').trim().slice(0, 4000);
-        if (!content) return send(res, 400, { error: 'Vui lòng nhập nội dung trao đổi.' });
+        const attachmentIds = Array.isArray(record?.attachments) ? record.attachments.map(item => String(item?.id || '')).filter(Boolean).slice(0, 10) : [];
+        if (!content && !attachmentIds.length) return send(res, 400, { error: 'Vui lòng nhập nội dung hoặc đính kèm tệp.' });
         const audience = discussionRecipientOptions(shipment);
         const selectedIds = [...new Set((Array.isArray(record?.recipientIds) ? record.recipientIds : []).map(value => String(value || '')))].slice(0, 20);
         const recipients = audience.filter(option => selectedIds.includes(option.id)).map(option => ({ id: option.id, kind: option.kind, label: option.label, userIds: option.userIds }));
@@ -1250,13 +1296,21 @@ http.createServer(async (req, res) => {
         // mention is optional and only creates an unread notification; it
         // never changes who may view the shipment or old discussions.
         const priority = ['normal', 'important', 'urgent'].includes(record?.priority) ? record.priority : 'important';
+        const attachments = attachmentIds.map(id => chatFileMetadata.get(id)).filter(item => item && item.userId === user.id && item.shipmentId === shipment.id).map(item => ({ id: item.id, fileName: item.fileName, mimeType: item.mimeType, size: item.size, url: item.url }));
+        if (!content && !attachments.length) return send(res, 400, { error: 'Tệp đính kèm không hợp lệ hoặc đã hết hạn. Vui lòng tải lại tệp.' });
         shipment.discussions = Array.isArray(shipment.discussions) ? shipment.discussions : [];
-        const message = { id: crypto.randomUUID(), actorId: user.id, actor: user.name, actorRole: customsActorRole(user), content, priority, recipients, readBy: [{ userId: user.id, readAt: new Date().toISOString() }], createdAt: new Date().toISOString() };
+        const message = { id: crypto.randomUUID(), actorId: user.id, actor: user.name, actorRole: customsActorRole(user), content, priority, recipients, attachments, readBy: [{ userId: user.id, readAt: new Date().toISOString() }], createdAt: new Date().toISOString() };
         shipment.discussions.push(message);
         if (shipment.discussions.length > 300) shipment.discussions = shipment.discussions.slice(-300);
         shipment.updatedAt = message.createdAt;
         customsHistory(shipment, user, 'discussion_message', shipment.status, shipment.status, `Trao đổi nội bộ: ${content}`);
         saveCustomsRows(rows); return send(res, 200, { record: shipment, message });
+      }
+      if (action === 'archive_discussion' || action === 'restore_discussion') {
+        if (!customsVisibleRows(user, rows).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền cập nhật hội thoại này.' });
+        shipment.discussionArchivedBy = shipment.discussionArchivedBy && typeof shipment.discussionArchivedBy === 'object' ? shipment.discussionArchivedBy : {};
+        if (action === 'archive_discussion') shipment.discussionArchivedBy[user.id] = new Date().toISOString(); else delete shipment.discussionArchivedBy[user.id];
+        saveCustomsRows(rows); return send(res, 200, { ok: true, archived: Boolean(shipment.discussionArchivedBy[user.id]) });
       }
       if (action === 'mark_discussion_read') {
         if (!customsVisibleRows(user, rows).some(row => row.id === shipment.id)) return send(res, 403, { error: 'Bạn không có quyền xem trao đổi trên mã hàng này.' });
@@ -1457,6 +1511,7 @@ http.createServer(async (req, res) => {
       const saleSupplementWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'sale-supplement-workspace.js'), 'utf8'));
       const customsListWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'customs-list-workspace.js'), 'utf8'));
       const discussionWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'discussion-workspace.js'), 'utf8'));
+      const chatDirectoryWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'chat-directory-workspace.js'), 'utf8'));
       const imagePreview = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'image-preview.js'), 'utf8'));
       const overviewWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'overview-workspace.js'), 'utf8'));
       const truckLoadingWorkspace = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'truck-loading-workspace.js'), 'utf8'));
@@ -1476,7 +1531,7 @@ http.createServer(async (req, res) => {
         // buttons and localStorage state diverging between computers.
         .replace('&lt;script src=&quot;/modules/ktt-customs/draft-lock.js&quot;&gt;&lt;/script&gt;', '')
         .replace('&lt;script src=&quot;/modules/ktt-customs/workflow-safety.js&quot;&gt;&lt;/script&gt;', '')
-        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${saleSupplementWorkspace}&lt;/script&gt;&lt;script&gt;${customsListWorkspace}&lt;/script&gt;&lt;script&gt;${imagePreview}&lt;/script&gt;&lt;script&gt;${overviewWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;script&gt;${discussionWorkspace}&lt;/script&gt;&lt;/body&gt;`);
+        .replace('&lt;/body&gt;', `&lt;script&gt;${sessionBridge}&lt;/script&gt;&lt;script&gt;${processingWorkspace}&lt;/script&gt;&lt;script&gt;${saleSupplementWorkspace}&lt;/script&gt;&lt;script&gt;${customsListWorkspace}&lt;/script&gt;&lt;script&gt;${imagePreview}&lt;/script&gt;&lt;script&gt;${overviewWorkspace}&lt;/script&gt;&lt;script&gt;${truckLoadingWorkspace}&lt;/script&gt;&lt;script&gt;${customsDocumentsWorkspace}&lt;/script&gt;${warehouseWorkspace ? `&lt;script&gt;${warehouseWorkspace}&lt;/script&gt;` : ''}&lt;script&gt;${discussionWorkspace}&lt;/script&gt;&lt;script&gt;${chatDirectoryWorkspace}&lt;/script&gt;&lt;/body&gt;`);
       if (canImportCustomsWarehouse(user)) {
         const importPopupScript = encodeForSrcdoc(fs.readFileSync(path.join(publicDir, 'modules', 'ktt-customs', 'import-popup.js'), 'utf8'));
         content = content
@@ -1494,6 +1549,14 @@ http.createServer(async (req, res) => {
   if (isCustomsOnlyUser(user) && (pathname === '/' || pathname === '/index.html')) {
     res.writeHead(302, { Location: '/khaibaohaiquan' });
     return res.end();
+  }
+  if (pathname.startsWith('/api/customs-chat-files/') && req.method === 'GET') {
+    if (!canUseCustoms(user)) return send(res, user ? 403 : 401, 'Bạn chưa được phân quyền sử dụng Khai Báo HQ.', 'text/plain; charset=utf-8');
+    const fileName = path.basename(pathname), visible = customsVisibleRows(user, customsRows());
+    const attachment = visible.flatMap(row => row.discussions || []).flatMap(message => message.attachments || []).find(item => String(item?.url || '').endsWith(`/${fileName}`));
+    if (!attachment || !fileName || !/^[0-9a-f-]{36}\.[a-z0-9]+$/i.test(fileName)) return send(res, 404, 'Không tìm thấy tệp đính kèm.', 'text/plain; charset=utf-8');
+    const filePath = path.join(chatFileDir, fileName);
+    return fs.readFile(filePath, (error, content) => error ? send(res, error.code === 'ENOENT' ? 404 : 500, error.code === 'ENOENT' ? 'Không tìm thấy tệp đính kèm.' : 'Không thể tải tệp đính kèm.', 'text/plain; charset=utf-8') : send(res, 200, content, attachment.mimeType || types[path.extname(fileName).toLowerCase()] || 'application/octet-stream'));
   }
   if (pathname.startsWith('/uploads/customs-sale-images/')) {
     const fileName = path.basename(pathname);

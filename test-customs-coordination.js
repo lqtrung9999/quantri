@@ -41,6 +41,7 @@ const customsListWorkspace = fs.readFileSync('public/modules/ktt-customs/customs
 const warehouseWorkspace = fs.readFileSync('public/modules/ktt-customs/warehouse-workspace.js', 'utf8');
 const saleSupplementWorkspace = fs.readFileSync('public/modules/ktt-customs/sale-supplement-workspace.js', 'utf8');
 const discussionWorkspace = fs.readFileSync('public/modules/ktt-customs/discussion-workspace.js', 'utf8');
+const chatDirectoryWorkspace = fs.readFileSync('public/modules/ktt-customs/chat-directory-workspace.js', 'utf8');
 assert.match(truckWorkspace, /Xếp Xe CN/);
 assert.match(truckWorkspace, /assign_truck/);
 assert.match(truckWorkspace, /revert_loading/);
@@ -79,6 +80,11 @@ assert.match(discussionWorkspace, /openIds\.length >= 2[\s\S]*ch-window\.minimiz
 assert.match(discussionWorkspace, /recipientIds:selected\.map[\s\S]*event\.isComposing/, 'Nhắc đến là tùy chọn và Enter phải không gửi khi đang gõ bộ ký tự');
 assert.match(serverSource, /A normal message belongs to the shared room[\s\S]*priority/, 'Máy chủ phải cho phép tin trao đổi chung không cần chọn người nhận');
 assert.match(serverSource, /only the actual Sale owner and that team's[\s\S]*leaderTeam\(account\)/, 'Nhắc đến chỉ được liệt kê Sale phụ trách và trưởng phòng, không liệt kê cả phòng Sale');
+assert.match(chatDirectoryWorkspace, /Chat Nội Bộ[\s\S]*Đã lưu trữ[\s\S]*archive_discussion/, 'Phải có trang Chat Nội Bộ và lưu trữ hội thoại theo tài khoản');
+assert.match(discussionWorkspace, /ch-file-input[\s\S]*attachments:pendingFiles/, 'Chat phải gửi tệp đã đính kèm theo tin nhắn');
+assert.match(discussionWorkspace, /customs-chat-files\/start[\s\S]*customs-chat-files\/finish/, 'Chat phải tải tệp thật trước khi gửi');
+assert.match(serverSource, /chatFileMaxBytes[\s\S]*customs-chat-files\/start[\s\S]*archive_discussion[\s\S]*discussionArchivedBy/, 'Máy chủ phải lưu tệp chat thật và chỉ lưu trữ hội thoại theo từng tài khoản');
+assert.match(serverSource, /pathname\.startsWith\('\/api\/customs-chat-files\/'\)[\s\S]*customsVisibleRows/, 'Tải tệp chat phải kiểm tra quyền ở máy chủ');
 assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
 assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');
 assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');
