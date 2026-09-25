@@ -1,106 +1,87 @@
 (() => {
   'use strict';
-  const root = document.getElementById('customs-flow-app');
-  if (!root) return;
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-  const roleLabel = role => ({ manager: 'Giám đốc / Quản lý', customs_declaration: 'Khai báo HQ', truck_planner: 'Điều vận', cn_operations: 'Điều vận', warehouse_cn: 'Kho TQ', accounting: 'Kế toán', sale: 'Sale', admin: 'Quản trị viên' }[role] || 'Thành viên');
-  const time = value => { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
-  const allRows = () => Array.isArray(window.KTT_CUSTOMS_DATA) ? window.KTT_CUSTOMS_DATA : [];
-  let currentId = '';
-  const panel = document.createElement('section');
-  panel.id = 'cf-shipment-discussion'; panel.hidden = true;
-  panel.innerHTML = `<div class="sd-dialog" role="dialog" aria-modal="true" aria-labelledby="sd-title"><header><div><p>TRAO ĐỔI NỘI BỘ THEO MÃ HÀNG</p><h2 id="sd-title"></h2><span class="sd-subtitle"></span></div><button type="button" class="sd-close" aria-label="Đóng">×</button></header><div class="sd-guidance">Chọn đúng người hoặc phòng cần xử lý. Người nhận có tin chưa đọc sẽ thấy cảnh báo nổi bật trên danh sách mã hàng.</div><div class="sd-alert" hidden></div><div class="sd-thread"></div><section class="sd-compose"><label for="sd-message">Nội dung trao đổi</label><textarea id="sd-message" maxlength="4000" placeholder="Nêu vấn đề, thông tin cần xác nhận hoặc quyết định cần chốt..."></textarea><div class="sd-routing"><b>Gửi đến</b><div class="sd-targets"></div></div><div class="sd-priority"><label for="sd-priority">Mức độ</label><select id="sd-priority"><option value="normal">Bình thường</option><option value="important" selected>Quan trọng</option><option value="urgent">KHẨN — cần xử lý ngay</option></select></div><div><small class="sd-feedback" role="status">Trao đổi được lưu theo riêng từng mã hàng.</small><button type="button" class="sd-send">Gửi trao đổi</button></div></section></div>`;
-  document.body.appendChild(panel);
-  const current = () => allRows().find(row => row._id === currentId);
-  const priorityLabel = value => ({ normal: 'Bình thường', important: 'Quan trọng', urgent: 'KHẨN' }[value] || 'Bình thường');
-  const recipients = () => (window.KTT_CUSTOMS_SESSION?.discussionRecipients?.[currentId] || []).filter(option => option.userIds?.length);
-  const renderRecipients = () => {
-    const box = panel.querySelector('.sd-targets');
-    const options = recipients();
-    const valid = new Set(options.map(option => option.id));
-    const selected = new Set((box.dataset.selected || 'all_related').split(',').filter(id => valid.has(id)));
-    if (!selected.size && valid.has('all_related')) selected.add('all_related');
-    box.dataset.selected = [...selected].join(',');
-    box.innerHTML = options.map(option => `<button type="button" class="sd-target ${selected.has(option.id) ? 'selected' : ''}" data-target-id="${esc(option.id)}">${esc(option.label)}</button>`).join('') || '<span>Chưa có người nhận phù hợp.</span>';
+  const root = document.getElementById('customs-flow-app'); if (!root) return;
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[char]);
+  const role = value => ({ manager:'Quản lý', customs_declaration:'Khai báo HQ', truck_planner:'Điều vận', cn_operations:'Điều vận', warehouse_cn:'Kho TQ', accounting:'Kế toán', sale:'Sale', admin:'Quản trị viên' }[value] || 'Thành viên');
+  const time = value => { const date = new Date(value || ''); return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); };
+  const rows = () => Array.isArray(window.KTT_CUSTOMS_DATA) ? window.KTT_CUSTOMS_DATA : [];
+  const me = () => window.KTT_CUSTOMS_SESSION?.user || {};
+  const shipment = id => rows().find(row => row._id === id);
+  const recipients = id => (window.KTT_CUSTOMS_SESSION?.discussionRecipients?.[id] || []).filter(option => option.userIds?.length && option.id !== 'all_related');
+  const drafts = new Map(), openIds = [], mentions = new Map(); let inboxOpen = false, lastUnread = 0;
+  const post = async (action, id, record = {}) => {
+    const response = await fetch('/api/customs-coordination', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ action, id, record }) });
+    const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || 'Không thể thực hiện trao đổi.'); return body;
   };
-  const render = () => {
-    const shipment = current();
-    if (!shipment) return close();
-    panel.querySelector('#sd-title').textContent = shipment.code || 'Trao đổi mã hàng';
-    panel.querySelector('.sd-subtitle').textContent = [shipment.name, shipment.customer, shipment.owner].filter(Boolean).join(' · ');
-    const messages = Array.isArray(shipment.discussions) ? shipment.discussions : [];
-    const unread = Number(shipment.discussionUnread || 0);
-    const alert = panel.querySelector('.sd-alert'); alert.hidden = !unread; alert.textContent = unread ? `Bạn có ${unread} trao đổi được gửi đến bạn chưa đọc.` : '';
-    panel.querySelector('.sd-thread').innerHTML = messages.length ? messages.map(message => `<article class="sd-message ${message.priority === 'urgent' ? 'urgent' : ''}"><div class="sd-avatar">${esc(String(message.actor || 'KTT').trim().slice(0, 1).toUpperCase())}</div><div><header><b>${esc(message.actor || 'Thành viên')}</b><span>${esc(roleLabel(message.actorRole))} · ${esc(time(message.createdAt))}</span><i class="sd-level ${esc(message.priority || 'normal')}">${esc(priorityLabel(message.priority))}</i></header><p>${esc(message.content).replace(/\n/g, '<br>')}</p>${message.recipients?.length ? `<small class="sd-recipients">Gửi đến: ${esc(message.recipients.map(item => item.label).join(', '))}</small>` : ''}</div></article>`).join('') : '<div class="sd-empty">Chưa có trao đổi. Hãy ghi nội dung cần phối hợp cho mã hàng này.</div>';
+  const host = document.createElement('section'); host.id = 'cf-chat-hub';
+  host.innerHTML = `<button type="button" class="ch-launch" aria-expanded="false" aria-label="Trao đổi nội bộ theo mã hàng">▰ <span>Trao đổi mã hàng</span><b hidden>0</b></button><aside class="ch-inbox" hidden><header><div><small>CHAT NỘI BỘ</small><h2>Trao đổi mã hàng</h2></div><button type="button" data-chat-close-inbox aria-label="Đóng">×</button></header><input class="ch-search" placeholder="Tìm mã hàng, khách hàng, tên hàng…"><div class="ch-inbox-list"></div></aside><div class="ch-windows"></div><div class="ch-toast" hidden></div>`;
+  document.body.appendChild(host);
+  const launch = host.querySelector('.ch-launch'), inbox = host.querySelector('.ch-inbox'), list = host.querySelector('.ch-inbox-list'), windows = host.querySelector('.ch-windows');
+  const messages = item => Array.isArray(item?.discussions) ? item.discussions : [];
+  const latest = item => messages(item).at(-1) || null;
+  const unreadShipments = () => rows().filter(item => Number(item.discussionUnread || 0));
+  const totalUnread = () => unreadShipments().reduce((sum, item) => sum + Number(item.discussionUnread || 0), 0);
+  const syncBadge = () => { const total = totalUnread(), urgent = rows().some(item => Number(item.discussionUrgentUnread || 0)); launch.querySelector('b').hidden = !total; launch.querySelector('b').textContent = total > 99 ? '99+' : total; launch.classList.toggle('urgent', urgent); };
+  const renderInbox = () => {
+    const term = host.querySelector('.ch-search').value.trim().toLocaleLowerCase('vi-VN');
+    const items = rows().filter(item => { const haystack = [item.code,item.name,item.customer,item.owner,item.sale].join(' ').toLocaleLowerCase('vi-VN'); return !term || haystack.includes(term); }).filter(item => messages(item).length).sort((a,b) => Number(b.discussionUnread || 0) - Number(a.discussionUnread || 0) || new Date(latest(b)?.createdAt || 0) - new Date(latest(a)?.createdAt || 0));
+    list.innerHTML = items.length ? items.map(item => { const last = latest(item), urgent = Number(item.discussionUrgentUnread || 0), mention = Number(item.discussionUnread || 0); return `<button type="button" class="ch-conversation ${urgent ? 'urgent':''}" data-chat-id="${esc(item._id)}"><div><b>${esc(item.code)}</b><span>${esc([item.name,item.customer].filter(Boolean).join(' · '))}</span></div><time>${esc(time(last?.createdAt))}</time><p><strong>${esc(last?.actor || '')}</strong> ${esc(last?.content || '')}</p><footer>${urgent ? '<em>Cần xử lý</em>' : mention ? '<em>Nhắc đến bạn</em>' : ''}${mention ? `<i>${mention > 99 ? '99+' : mention}</i>` : ''}</footer></button>`; }).join('') : '<div class="ch-empty">Chưa có cuộc trao đổi trong phạm vi bạn được xem.</div>';
   };
-  const close = () => { panel.hidden = true; currentId = ''; };
-  const markRead = async () => {
-    const shipment = current(); if (!shipment?.discussionUnread) return;
-    try {
-      const response = await fetch('/api/customs-coordination', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark_discussion_read', id: currentId, record: {} }) });
-      if (!response.ok) return;
-      shipment.discussionUnread = 0; shipment.discussionUrgentUnread = 0; render();
-      await window.KTT_CUSTOMS_REFRESH?.();
-    } catch { /* Reading a notice must never block the workspace. */ }
+  const toggleInbox = force => { inboxOpen = force ?? !inboxOpen; inbox.hidden = !inboxOpen; launch.setAttribute('aria-expanded', String(inboxOpen)); if (inboxOpen) renderInbox(); };
+  const messageHtml = message => { const mine = message.actorId === me().id; return `<article class="ch-message ${mine ? 'mine':''} ${message.priority === 'urgent' ? 'urgent':''}"><div class="ch-message-meta"><b>${esc(message.actor || 'Thành viên')}</b><span>${esc(role(message.actorRole))} · ${esc(time(message.createdAt))}</span>${message.priority === 'urgent' ? '<em>KHẨN</em>' : message.priority === 'important' ? '<em class="important">Quan trọng</em>' : ''}</div><p>${esc(message.content || '').replace(/\n/g,'<br>')}</p>${message.recipients?.length ? `<small>Nhắc đến: ${esc(message.recipients.map(item => item.label).join(', '))}</small>` : ''}</article>`; };
+  const renderWindow = id => {
+    const item = shipment(id), node = windows.querySelector(`[data-window-id="${CSS.escape(id)}"]`); if (!item || !node) return;
+    const thread = node.querySelector('.ch-thread'), atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
+    node.querySelector('.ch-window-title').textContent = item.code || 'Mã hàng'; node.querySelector('.ch-window-subtitle').textContent = [item.name,item.customer,item.owner || item.sale].filter(Boolean).join(' · ');
+    thread.innerHTML = messages(item).length ? messages(item).map(messageHtml).join('') : '<div class="ch-empty">Chưa có tin nhắn. Hãy bắt đầu trao đổi cho mã hàng này.</div>';
+    if (atBottom) thread.scrollTop = thread.scrollHeight;
+    const chips = node.querySelector('.ch-mentions'), selected = mentions.get(id) || [];
+    chips.innerHTML = selected.map(option => `<button type="button" data-remove-mention="${esc(option.id)}">@ ${esc(option.label)} ×</button>`).join('');
   };
-  const open = shipment => { const id = typeof shipment === 'string' ? shipment : shipment?._id; if (!id) return; currentId = id; panel.hidden = false; renderRecipients(); render(); panel.querySelector('#sd-message').focus(); markRead(); };
-  window.KTT_CUSTOMS_DISCUSSION = { open, close };
-  const inbox = document.createElement('button');
-  inbox.type = 'button'; inbox.id = 'cf-discussion-inbox'; inbox.hidden = true;
-  document.body.appendChild(inbox);
-  const syncInbox = () => {
-    const pending = allRows().filter(row => Number(row.discussionUnread || 0) > 0);
-    const total = pending.reduce((sum, row) => sum + Number(row.discussionUnread || 0), 0);
-    const urgent = pending.reduce((sum, row) => sum + Number(row.discussionUrgentUnread || 0), 0);
-    inbox.hidden = !total;
-    inbox.classList.toggle('urgent', Boolean(urgent));
-    inbox.textContent = urgent ? `⚠ ${urgent} trao đổi KHẨN chưa đọc` : `▢ ${total} trao đổi mới`;
-    inbox.dataset.firstId = (pending.find(row => Number(row.discussionUrgentUnread || 0)) || pending[0] || {})._id || '';
+  const markRead = async id => {
+    const item = shipment(id), node = windows.querySelector(`[data-window-id="${CSS.escape(id)}"]`);
+    if (!item?.discussionUnread || !node || node.classList.contains('minimized') || document.hidden) return;
+    try { await post('mark_discussion_read', id); await window.KTT_CUSTOMS_REFRESH?.(); } catch { /* A read acknowledgement must never interrupt work. */ }
   };
-  inbox.addEventListener('click', () => { if (inbox.dataset.firstId) open(inbox.dataset.firstId); });
-  window.addEventListener('ktt-customs-refreshed', syncInbox);
-  setInterval(() => { window.KTT_CUSTOMS_REFRESH?.().catch(() => {}); }, 45000);
-  document.addEventListener('click', event => { const button = event.target.closest('[data-discussion-id]'); if (button) open(button.dataset.discussionId); });
-  panel.querySelector('.sd-close').addEventListener('click', close);
-  panel.addEventListener('click', event => { if (event.target === panel) close(); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) close(); });
-  const sendDiscussion = async () => {
-    const input = panel.querySelector('#sd-message'), content = input.value.trim();
-    const submit = panel.querySelector('.sd-send'), feedback = panel.querySelector('.sd-feedback');
-    const recipientIds = (panel.querySelector('.sd-targets').dataset.selected || '').split(',').filter(Boolean);
-    const priority = panel.querySelector('#sd-priority').value;
-    if (!content) { feedback.textContent = 'Vui lòng nhập nội dung trao đổi trước khi gửi.'; input.focus(); return; }
-    if (!recipientIds.length) { feedback.textContent = 'Hãy chọn cá nhân hoặc phòng cần xử lý.'; return; }
-    if (!currentId) return;
-    submit.disabled = true; feedback.textContent = 'Đang gửi trao đổi…';
-    try {
-      const response = await fetch('/api/customs-coordination', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add_discussion', id: currentId, record: { content, priority, recipientIds } }) });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Không thể gửi trao đổi.');
-      const shipment = current();
-      if (shipment && payload.message) shipment.discussions = [...(shipment.discussions || []), payload.message];
-      input.value = ''; render(); feedback.textContent = 'Đã gửi trao đổi.'; await window.KTT_CUSTOMS_REFRESH?.();
-    } catch (error) { feedback.textContent = error.message || 'Không thể gửi trao đổi. Vui lòng thử lại.'; }
-    finally { submit.disabled = false; }
-  };
-  panel.addEventListener('click', event => {
-    const target = event.target.closest('.sd-target');
-    if (target) {
-      event.preventDefault(); event.stopPropagation();
-      const box = panel.querySelector('.sd-targets'), selected = new Set((box.dataset.selected || '').split(',').filter(Boolean));
-      selected.has(target.dataset.targetId) ? selected.delete(target.dataset.targetId) : selected.add(target.dataset.targetId);
-      box.dataset.selected = [...selected].join(','); renderRecipients(); return;
+  const open = id => {
+    if (!shipment(id)) return; toggleInbox(false);
+    let node = windows.querySelector(`[data-window-id="${CSS.escape(id)}"]`);
+    if (!node) {
+      if (openIds.length >= 2) { const old = openIds.shift(); windows.querySelector(`[data-window-id="${CSS.escape(old)}"]`)?.remove(); }
+      openIds.push(id); node = document.createElement('section'); node.className = 'ch-window'; node.dataset.windowId = id;
+      node.innerHTML = `<header><div><small class="ch-window-subtitle"></small><h3 class="ch-window-title"></h3></div><div><button type="button" data-minimize title="Thu nhỏ">—</button><button type="button" data-close-window title="Đóng">×</button></div></header><div class="ch-thread"></div><footer class="ch-compose"><div class="ch-mentions"></div><div class="ch-mention-picker" hidden></div><textarea maxlength="4000" placeholder="Viết trao đổi… (@ để nhắc người hoặc phòng)"></textarea><div><button type="button" class="ch-mention">@ Nhắc đến</button><select class="ch-priority" aria-label="Mức độ"><option value="normal">Bình thường</option><option value="important">Quan trọng</option><option value="urgent">KHẨN</option></select><button type="button" class="ch-send">Gửi</button></div></footer>`;
+      windows.appendChild(node); const input = node.querySelector('textarea'); input.value = drafts.get(id) || '';
     }
-    if (event.target.closest('.sd-send')) { event.preventDefault(); event.stopPropagation(); sendDiscussion(); }
-  }, true);
-  const style = document.createElement('style');
-  style.textContent = `#cf-shipment-discussion{position:fixed;z-index:5000;inset:0;display:grid;place-items:center;padding:24px;background:#1522389c;color:#172237}#cf-shipment-discussion[hidden]{display:none!important}#cf-shipment-discussion .sd-dialog{display:grid;grid-template-rows:auto auto minmax(180px,1fr) auto;width:min(760px,94vw);max-height:min(810px,90vh);overflow:hidden;border:1px solid #dbe4f0;border-radius:17px;background:#fff;box-shadow:0 25px 80px #0d192c78}#cf-shipment-discussion .sd-dialog>header{display:flex;justify-content:space-between;gap:18px;padding:20px 22px 16px;border-bottom:1px solid #e4eaf2}#cf-shipment-discussion .sd-dialog>header p{margin:0 0 5px;color:#5c78a6;font-size:10px;font-weight:850;letter-spacing:.08em}#cf-shipment-discussion h2{margin:0;font-size:23px;letter-spacing:-.02em}#cf-shipment-discussion .sd-subtitle{display:block;margin-top:5px;color:#708098;font-size:12px}#cf-shipment-discussion .sd-close{width:34px;height:34px;border:0;border-radius:8px;background:#f1f4f8;color:#52627b;font-size:25px;line-height:1;cursor:pointer}#cf-shipment-discussion .sd-guidance{margin:14px 18px 0;padding:9px 11px;border-radius:8px;background:#edf4ff;color:#4d6991;font-size:12px;line-height:1.4}#cf-shipment-discussion .sd-thread{min-height:180px;overflow:auto;padding:15px 22px}#cf-shipment-discussion .sd-message{display:grid;grid-template-columns:34px 1fr;gap:10px;padding:11px 0;border-bottom:1px solid #edf1f5}#cf-shipment-discussion .sd-message:last-child{border-bottom:0}#cf-shipment-discussion .sd-avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#eaf1fc;color:#356ab3;font-size:12px;font-weight:850}#cf-shipment-discussion .sd-message header{display:flex;align-items:baseline;gap:7px}#cf-shipment-discussion .sd-message b{font-size:13px}#cf-shipment-discussion .sd-message header span{color:#7c8aa0;font-size:11px}#cf-shipment-discussion .sd-message p{margin:5px 0 0;color:#27364c;font-size:13px;line-height:1.55;white-space:normal;word-break:break-word}#cf-shipment-discussion .sd-empty{display:grid;place-items:center;min-height:160px;color:#7a889b;text-align:center;font-size:13px}#cf-shipment-discussion .sd-compose{padding:15px 22px 18px;border-top:1px solid #e4eaf2;background:#fbfcfe}#cf-shipment-discussion .sd-compose label{display:block;margin-bottom:6px;color:#53637b;font-size:12px;font-weight:800}#cf-shipment-discussion .sd-compose textarea{box-sizing:border-box;width:100%;min-height:82px;resize:vertical;border:1px solid #cfdae8;border-radius:9px;padding:10px;font:13px/1.45 inherit;color:#24334a;outline-color:#5791e4}#cf-shipment-discussion .sd-compose>div{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:9px}#cf-shipment-discussion .sd-feedback{color:#6d7d94;font-size:11px}#cf-shipment-discussion .sd-send{border:0;border-radius:8px;background:#ff7922;color:#fff;padding:10px 14px;font:800 13px inherit;cursor:pointer}#cf-shipment-discussion .sd-send:disabled{cursor:wait;opacity:.65}@media(max-width:600px){#cf-shipment-discussion{padding:10px}#cf-shipment-discussion .sd-dialog{width:100%;max-height:95vh}#cf-shipment-discussion .sd-dialog>header,#cf-shipment-discussion .sd-thread,#cf-shipment-discussion .sd-compose{padding-left:15px;padding-right:15px}}`;
+    node.classList.remove('minimized'); renderWindow(id); setTimeout(() => markRead(id), 250);
+  };
+  window.KTT_CUSTOMS_DISCUSSION = { open, close: id => { const target = id || openIds.at(-1) || ''; const node = windows.querySelector(`[data-window-id="${CSS.escape(target)}"]`); node?.remove(); const index = openIds.indexOf(target); if (index >= 0) openIds.splice(index, 1); } };
+  const toast = text => { const node = host.querySelector('.ch-toast'); node.textContent = text; node.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => { node.hidden = true; }, 5500); };
+  const send = async node => {
+    const id = node.dataset.windowId, input = node.querySelector('textarea'), content = input.value.trim(); if (!content) return input.focus();
+    const button = node.querySelector('.ch-send'), selected = mentions.get(id) || []; button.disabled = true; button.textContent = 'Đang gửi…';
+    try { await post('add_discussion', id, { content, priority:node.querySelector('.ch-priority').value, recipientIds:selected.map(option => option.id) }); drafts.delete(id); input.value = ''; mentions.delete(id); await window.KTT_CUSTOMS_REFRESH?.(); renderWindow(id); }
+    catch (error) { drafts.set(id, input.value); toast(error.message || 'Chưa gửi được trao đổi.'); }
+    finally { button.disabled = false; button.textContent = 'Gửi'; }
+  };
+  host.addEventListener('click', event => {
+    const target = event.target.closest('button'); if (!target) return;
+    if (target === launch) return toggleInbox(); if (target.matches('[data-chat-close-inbox]')) return toggleInbox(false);
+    if (target.dataset.chatId) return open(target.dataset.chatId);
+    const node = target.closest('.ch-window'); if (!node) return;
+    const id = node.dataset.windowId;
+    if (target.matches('[data-close-window]')) { drafts.set(id, node.querySelector('textarea').value); node.remove(); const index = openIds.indexOf(id); if (index >= 0) openIds.splice(index, 1); return; }
+    if (target.matches('[data-minimize]')) { node.classList.toggle('minimized'); if (!node.classList.contains('minimized')) markRead(id); return; }
+    if (target.matches('.ch-send')) return send(node);
+    if (target.matches('.ch-mention')) { const picker = node.querySelector('.ch-mention-picker'), selected = new Set((mentions.get(id) || []).map(option => option.id)); picker.hidden = !picker.hidden; picker.innerHTML = recipients(id).filter(option => !selected.has(option.id)).map(option => `<button type="button" data-mention-id="${esc(option.id)}">@ ${esc(option.label)}</button>`).join('') || '<span>Không có người hoặc phòng phù hợp.</span>'; return; }
+    if (target.dataset.mentionId) { const option = recipients(id).find(option => option.id === target.dataset.mentionId); if (option) mentions.set(id, [...(mentions.get(id) || []), option]); node.querySelector('.ch-mention-picker').hidden = true; renderWindow(id); return; }
+    if (target.dataset.removeMention) { mentions.set(id, (mentions.get(id) || []).filter(option => option.id !== target.dataset.removeMention)); renderWindow(id); }
+  });
+  host.addEventListener('input', event => { const node = event.target.closest('.ch-window'); if (node && event.target.matches('textarea')) { drafts.set(node.dataset.windowId, event.target.value); if (event.data === '@') node.querySelector('.ch-mention')?.click(); } });
+  host.addEventListener('keydown', event => { const node = event.target.closest('.ch-window'); if (!node || !event.target.matches('textarea')) return; if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); send(node); } });
+  host.querySelector('.ch-search').addEventListener('input', renderInbox);
+  document.addEventListener('click', event => { const button = event.target.closest('[data-discussion-id]'); if (button) open(button.dataset.discussionId); });
+  window.addEventListener('ktt-customs-refreshed', () => { const next = totalUnread(); if (next > lastUnread) { const item = unreadShipments()[0]; toast(`Có trao đổi mới tại ${item?.code || 'mã hàng'}.`); } lastUnread = next; syncBadge(); if (inboxOpen) renderInbox(); openIds.forEach(renderWindow); });
+  syncBadge(); lastUnread = totalUnread();
+  const style = document.createElement('style'); style.textContent = `#cf-chat-hub{font-family:inherit;color:#172237}#cf-chat-hub button{font-family:inherit;cursor:pointer}#cf-chat-hub .ch-launch{position:fixed;z-index:4500;right:22px;bottom:22px;display:flex;align-items:center;gap:8px;border:0;border-radius:12px;background:#152238;color:#fff;padding:13px 16px;box-shadow:0 12px 28px #14223b45;font-size:13px;font-weight:850}#cf-chat-hub .ch-launch b{display:grid;place-items:center;min-width:18px;height:18px;border-radius:99px;background:#ff7922;font-size:10px}#cf-chat-hub .ch-launch.urgent{box-shadow:0 0 0 3px #ffb99b,0 12px 28px #a43b2257}#cf-chat-hub .ch-inbox{position:fixed;z-index:4501;right:22px;bottom:76px;width:min(380px,calc(100vw - 32px));max-height:min(610px,calc(100vh - 104px));overflow:hidden;border:1px solid #dbe3ee;border-radius:14px;background:#fff;box-shadow:0 18px 52px #14223b38}#cf-chat-hub .ch-inbox header,#cf-chat-hub .ch-window>header{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#152238;color:#fff;padding:13px 15px}#cf-chat-hub .ch-inbox small{color:#b9c7df;font-weight:850;letter-spacing:.08em}#cf-chat-hub h2,#cf-chat-hub h3{margin:2px 0 0;font-size:16px}#cf-chat-hub .ch-inbox header button,#cf-chat-hub .ch-window header button{border:0;border-radius:7px;background:#31435f;color:#fff;width:27px;height:27px;font-size:18px}#cf-chat-hub .ch-search{box-sizing:border-box;width:calc(100% - 22px);margin:11px;border:1px solid #dce4ef;border-radius:8px;padding:9px 10px;font:12px inherit;outline-color:#ff7922}#cf-chat-hub .ch-inbox-list{max-height:480px;overflow:auto;padding:0 8px 8px}#cf-chat-hub .ch-conversation{position:relative;width:100%;border:0;border-top:1px solid #edf1f5;background:#fff;padding:11px 9px;text-align:left;color:#24334a}#cf-chat-hub .ch-conversation:hover{background:#f5f8fc}#cf-chat-hub .ch-conversation>div{display:flex;justify-content:space-between;gap:8px}#cf-chat-hub .ch-conversation span,#cf-chat-hub .ch-conversation p{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#74839a;font-size:11px}#cf-chat-hub .ch-conversation time{position:absolute;right:9px;top:12px;color:#8491a4;font-size:10px}#cf-chat-hub .ch-conversation p{margin:5px 0}#cf-chat-hub .ch-conversation strong{color:#41516b}#cf-chat-hub .ch-conversation footer{display:flex;align-items:center;gap:6px}#cf-chat-hub .ch-conversation em{border-radius:5px;background:#fff0e8;color:#b94d1c;padding:3px 5px;font-size:10px;font-style:normal;font-weight:850}#cf-chat-hub .ch-conversation.urgent em{background:#ffe3dc;color:#b53b22}#cf-chat-hub .ch-conversation i{margin-left:auto;border-radius:99px;background:#ff7922;color:#fff;padding:2px 6px;font-size:10px;font-style:normal;font-weight:850}#cf-chat-hub .ch-windows{position:fixed;z-index:4502;right:22px;bottom:22px;display:flex;align-items:flex-end;gap:12px;pointer-events:none}#cf-chat-hub .ch-window{width:min(390px,calc(100vw - 32px));height:520px;display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;border:1px solid #cdd8e7;border-radius:14px;background:#fff;box-shadow:0 18px 52px #14223b42;pointer-events:auto}#cf-chat-hub .ch-window.minimized{height:50px;grid-template-rows:auto}#cf-chat-hub .ch-window.minimized .ch-thread,#cf-chat-hub .ch-window.minimized .ch-compose{display:none}#cf-chat-hub .ch-window-subtitle{display:block;max-width:285px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c3d0e6;font-size:10px}#cf-chat-hub .ch-thread{overflow:auto;padding:14px;background:#f6f8fb}#cf-chat-hub .ch-message{max-width:88%;margin:0 0 11px;border-radius:10px;background:#fff;padding:9px 10px;box-shadow:0 1px 2px #15223812}#cf-chat-hub .ch-message.mine{margin-left:auto;background:#eaf2ff}#cf-chat-hub .ch-message.urgent{border-left:3px solid #e2582c}#cf-chat-hub .ch-message-meta{display:flex;align-items:center;flex-wrap:wrap;gap:5px;color:#7a899e;font-size:10px}#cf-chat-hub .ch-message-meta b{color:#2c3d56;font-size:11px}#cf-chat-hub .ch-message-meta em{margin-left:auto;border-radius:4px;background:#ffe2da;color:#b54324;padding:2px 4px;font-size:9px;font-style:normal;font-weight:850}#cf-chat-hub .ch-message-meta .important{background:#fff1d6;color:#9b5c00}#cf-chat-hub .ch-message p{margin:5px 0;color:#26354a;font-size:12px;line-height:1.45;word-break:break-word}#cf-chat-hub .ch-message small{color:#6d7f98;font-size:10px}#cf-chat-hub .ch-compose{position:relative;border-top:1px solid #e1e8f1;padding:9px;background:#fff}#cf-chat-hub .ch-compose textarea{box-sizing:border-box;width:100%;min-height:60px;resize:vertical;border:1px solid #d4dfec;border-radius:8px;padding:8px;font:12px/1.4 inherit;outline-color:#ff7922}#cf-chat-hub .ch-compose>div:last-child{display:flex;align-items:center;gap:7px;margin-top:7px}#cf-chat-hub .ch-mention,#cf-chat-hub .ch-priority{border:1px solid #d5dfeb;border-radius:7px;background:#fff;color:#52637b;padding:6px 7px;font:11px inherit}#cf-chat-hub .ch-send{margin-left:auto;border:0;border-radius:7px;background:#ff7922;color:#fff;padding:7px 12px;font:850 12px inherit}#cf-chat-hub .ch-mentions{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}#cf-chat-hub .ch-mentions button{border:0;border-radius:5px;background:#eaf2ff;color:#285c9c;padding:3px 5px;font:10px inherit}#cf-chat-hub .ch-mention-picker{position:absolute;z-index:2;left:9px;bottom:96px;max-width:300px;max-height:150px;overflow:auto;border:1px solid #d5dfeb;border-radius:8px;background:#fff;box-shadow:0 10px 24px #1522382b;padding:5px}#cf-chat-hub .ch-mention-picker button{display:block;width:100%;border:0;background:#fff;padding:7px;text-align:left;color:#35475f;font:11px inherit}#cf-chat-hub .ch-mention-picker button:hover{background:#f0f5fc}#cf-chat-hub .ch-toast{position:fixed;z-index:4600;right:22px;bottom:78px;max-width:320px;border:1px solid #ffbf9e;border-radius:10px;background:#fff7f2;color:#9e421f;padding:10px 12px;box-shadow:0 12px 28px #15223835;font-size:12px;font-weight:800}#cf-chat-hub .ch-empty{padding:28px 16px;color:#7c8a9e;text-align:center;font-size:12px}@media(max-width:820px){#cf-chat-hub .ch-windows{right:10px;bottom:10px;gap:0}#cf-chat-hub .ch-window{width:calc(100vw - 20px);height:min(520px,calc(100vh - 82px))}#cf-chat-hub .ch-windows .ch-window:not(:last-child){display:none}#cf-chat-hub .ch-launch{right:10px;bottom:10px}#cf-chat-hub .ch-inbox{right:10px;bottom:64px}}`;
   document.head.appendChild(style);
-  const notificationStyle = document.createElement('style');
-  notificationStyle.textContent = `#cf-shipment-discussion .sd-alert{margin:10px 18px 0;padding:9px 11px;border:1px solid #ffc5b0;border-radius:8px;background:#fff0eb;color:#b44420;font-size:12px;font-weight:850}#cf-shipment-discussion .sd-message.urgent{margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:8px;background:#fff8f4}#cf-shipment-discussion .sd-level{margin-left:auto;padding:3px 6px;border-radius:5px;background:#eef2f7;color:#617086;font-size:10px;font-style:normal;font-weight:850;white-space:nowrap}#cf-shipment-discussion .sd-level.important{background:#fff2d9;color:#a86200}#cf-shipment-discussion .sd-level.urgent{background:#ffe5df;color:#bd3f22}#cf-shipment-discussion .sd-recipients{display:block;margin-top:7px;color:#63758d;font-size:11px}#cf-shipment-discussion .sd-routing,#cf-shipment-discussion .sd-priority{margin-top:10px}#cf-shipment-discussion .sd-routing>b,#cf-shipment-discussion .sd-priority label{display:block;margin-bottom:6px;color:#53637b;font-size:12px;font-weight:800}#cf-shipment-discussion .sd-targets{display:flex;flex-wrap:wrap;gap:6px}#cf-shipment-discussion .sd-target{border:1px solid #d5dfeb;border-radius:99px;background:#fff;color:#576981;padding:5px 8px;font:700 11px inherit;cursor:pointer}#cf-shipment-discussion .sd-target.selected{border-color:#ee7028;background:#fff0e8;color:#ae441d;box-shadow:0 0 0 1px #ffc9b1}#cf-shipment-discussion #sd-priority{border:1px solid #d5dfeb;border-radius:7px;background:#fff;color:#35465e;padding:7px 9px;font:12px inherit}`;
-  document.head.appendChild(notificationStyle);
-  const inboxStyle = document.createElement('style');
-  inboxStyle.textContent = `#cf-discussion-inbox{position:fixed;z-index:4500;right:22px;bottom:22px;border:0;border-radius:10px;background:#275b99;color:#fff;padding:12px 15px;box-shadow:0 10px 28px #173a674d;font:800 13px inherit;cursor:pointer}#cf-discussion-inbox.urgent{background:#cf4b2a;animation:cf-discussion-pulse 1.6s infinite}@keyframes cf-discussion-pulse{50%{box-shadow:0 10px 28px #c541205c,0 0 0 7px #ffb49a4d}}`;
-  document.head.appendChild(inboxStyle);
-  syncInbox();
 })();

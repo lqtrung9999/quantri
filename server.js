@@ -1242,7 +1242,9 @@ http.createServer(async (req, res) => {
         const audience = discussionRecipientOptions(shipment);
         const selectedIds = [...new Set((Array.isArray(record?.recipientIds) ? record.recipientIds : []).map(value => String(value || '')))].slice(0, 20);
         const recipients = audience.filter(option => selectedIds.includes(option.id)).map(option => ({ id: option.id, kind: option.kind, label: option.label, userIds: option.userIds }));
-        if (!recipients.length) return send(res, 400, { error: 'Hãy chọn ít nhất một cá nhân hoặc phòng cần xử lý.' });
+        // A normal message belongs to the shared room of this shipment.  A
+        // mention is optional and only creates an unread notification; it
+        // never changes who may view the shipment or old discussions.
         const priority = ['normal', 'important', 'urgent'].includes(record?.priority) ? record.priority : 'important';
         shipment.discussions = Array.isArray(shipment.discussions) ? shipment.discussions : [];
         const message = { id: crypto.randomUUID(), actorId: user.id, actor: user.name, actorRole: customsActorRole(user), content, priority, recipients, readBy: [{ userId: user.id, readAt: new Date().toISOString() }], createdAt: new Date().toISOString() };

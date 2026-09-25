@@ -85,7 +85,7 @@
       customs,
       customerChangeNote: latestCustomerChange?.content || '',
       supplementRequest: ((row.supplementRequests || []).filter(item => item.status === 'open').pop() || {}).content || '',
-      discussions: (Array.isArray(row.discussions) ? row.discussions : []).map(item => ({ id: item.id || '', actor: item.actor || '', actorRole: item.actorRole || '', content: item.content || '', priority: item.priority || 'normal', recipients: Array.isArray(item.recipients) ? item.recipients : [], readBy: Array.isArray(item.readBy) ? item.readBy : [], createdAt: item.createdAt || '' })),
+      discussions: (Array.isArray(row.discussions) ? row.discussions : []).map(item => ({ id: item.id || '', actorId: item.actorId || '', actor: item.actor || '', actorRole: item.actorRole || '', content: item.content || '', priority: item.priority || 'normal', recipients: Array.isArray(item.recipients) ? item.recipients : [], readBy: Array.isArray(item.readBy) ? item.readBy : [], createdAt: item.createdAt || '' })),
       discussionUnread: Number(row.discussionUnread || 0), discussionUrgentUnread: Number(row.discussionUrgentUnread || 0),
       loadingRecords: Array.isArray(row.loadingRecords) ? row.loadingRecords : [],
       history: (row.history || []).map(item => [displayDate(item.createdAt), item.actor || '', item.content || item.action || '', item.toStatus || ''])

@@ -74,6 +74,10 @@ assert.match(saleSupplementWorkspace, /Cá nhân[\s\S]*Phòng/, 'Trưởng phòn
 assert.match(saleSupplementWorkspace, /team === 'p8'[\s\S]*team === 'p5'/, 'Bộ chọn phạm vi chỉ dành cho Tuấn TP8 và Thắm TP5');
 assert.match(discussionWorkspace, /Trao đổi nội bộ theo mã hàng/i, 'Mỗi mã hàng phải có nơi trao đổi chung giữa các bộ phận');
 assert.match(serverSource, /action === 'add_discussion'[\s\S]*discussion_message/, 'Tin nhắn trao đổi phải được lưu và ghi lịch sử theo mã hàng');
+assert.match(discussionWorkspace, /cf-chat-hub[\s\S]*Trao đổi mã hàng[\s\S]*ch-inbox/, 'Trao đổi phải có hộp thư nổi theo mã hàng');
+assert.match(discussionWorkspace, /openIds\.length >= 2[\s\S]*ch-window\.minimized/, 'Chat nổi phải hỗ trợ tối đa hai cửa sổ và thu nhỏ');
+assert.match(discussionWorkspace, /recipientIds:selected\.map[\s\S]*event\.isComposing/, 'Nhắc đến là tùy chọn và Enter phải không gửi khi đang gõ bộ ký tự');
+assert.match(serverSource, /A normal message belongs to the shared room[\s\S]*priority/, 'Máy chủ phải cho phép tin trao đổi chung không cần chọn người nhận');
 assert.match(serverSource, /action === 'update_warehouse'[\s\S]*cargoCode[\s\S]*weightKg[\s\S]*volumeM3/, 'Điều vận Kho TQ phải được sửa Mã hàng, KG và M³');
 assert.match(serverSource, /customsHistory\(shipment, user, 'warehouse_update'/, 'Mọi chỉnh sửa dữ liệu kho phải được ghi lịch sử');
 assert.match(serverSource, /action === 'return_to_customer'[\s\S]*returned_to_customer/, 'Kho TQ phải có luồng Trả lại khách hàng');
