@@ -855,6 +855,9 @@ http.createServer(async (req, res) => {
     } catch { return send(res, 400, { error: 'Không thể đăng nhập.' }); }
   }
   if (pathname === '/api/logout' && req.method === 'POST') { res.setHeader('Set-Cookie', 'ktt_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return send(res, 200, { ok: true }); }
+  if (pathname === '/login-logistics.png') {
+    return fs.readFile(path.join(publicDir, 'login-logistics.png'), (error, content) => error ? send(res, 404, 'Không tìm thấy ảnh.', 'text/plain; charset=utf-8') : send(res, 200, content, 'image/png'));
+  }
   if (pathname === '/logo-kim-thanh-tin-transparent.png') {
     return fs.readFile(path.join(publicDir, 'logo-kim-thanh-tin-transparent.png'), (error, content) => error ? send(res, 404, 'Không tìm thấy logo.', 'text/plain; charset=utf-8') : send(res, 200, content, 'image/png'));
   }
